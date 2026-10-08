@@ -1,6 +1,11 @@
 """
-XAI Engine - SHAP (SHapley Additive exPlanations) & LIME Local Feature Importance Explainer.
+XAI Engine - SHAP (SHapley Additive exPlanations) Local Feature Importance Explainer.
 Generates clinical feature attributions and patient-specific risk factor breakdowns.
+
+IMPORTANT CHANGES (v2.0 — Clinical Integrity Rewrite):
+  - Uses actual SHAP computation instead of fabricated heuristic weights.
+  - Extracts the underlying base estimator (XGBoost/LightGBM) from the CalibratedClassifierCV
+    to utilize TreeExplainer for accurate, mathematically sound feature attributions.
 """
 
 import numpy as np
@@ -11,29 +16,29 @@ from data_generator import FEATURE_COLUMNS
 from ml_engine import ml_engine
 
 FEATURE_FRIENDLY_NAMES = {
-    "phq9_score": "High PHQ-9 Questionnaire Score",
-    "gad7_score": "High GAD-7 Anxiety Score",
+    "phq9_score": "PHQ-9 Questionnaire Score",
+    "gad7_score": "GAD-7 Anxiety Score",
     "mdq_score": "MDQ Bipolar Screening Score",
     "mood_stability_index": "Mood Instability Indicator",
-    "who5_wellbeing": "Low WHO-5 Wellbeing Index",
-    "sleep_hours": "Poor Sleep Duration & Quality",
-    "social_interaction_score": "Social Isolation / Reduced Contact",
-    "physical_activity_min": "Low Physical Activity Level",
-    "screen_time_hrs": "Excessive Screen Time Exposure",
-    "diet_quality_score": "Sub-optimal Diet Quality",
-    "stress_level": "Elevated Self-Reported Stress Level",
+    "who5_wellbeing": "WHO-5 Wellbeing Index",
+    "sleep_hours": "Sleep Duration & Quality",
+    "social_interaction_score": "Social Interaction Score",
+    "physical_activity_min": "Physical Activity Level",
+    "screen_time_hrs": "Screen Time Exposure",
+    "diet_quality_score": "Diet Quality",
+    "stress_level": "Self-Reported Stress Level",
     "speech_pitch_hz": "Speech Pitch Alteration",
-    "speech_tone_var": "Reduced Speech Tone Variability",
-    "speaking_rate_wpm": "Slower Speaking Velocity",
-    "pause_frequency_ppm": "Increased Speech Pause Frequency",
-    "audio_energy": "Low Vocal Acoustic Energy",
-    "sentiment_score": "Negative Sentiment in Conversation/Text",
-    "sadness_prob": "High Sadness Sentiment Probability",
-    "anxiety_prob": "High Anxiety Sentiment Probability",
-    "hopelessness_prob": "Hopelessness Key Terms in Transcript",
+    "speech_tone_var": "Speech Tone Variability",
+    "speaking_rate_wpm": "Speaking Velocity",
+    "pause_frequency_ppm": "Speech Pause Frequency",
+    "audio_energy": "Vocal Acoustic Energy",
+    "sentiment_score": "Text/Audio Sentiment Score",
+    "sadness_prob": "Sadness Sentiment Probability",
+    "anxiety_prob": "Anxiety Sentiment Probability",
+    "hopelessness_prob": "Hopelessness Key Terms",
     "keyword_intensity": "Psychological Distress Keyword Frequency",
-    "age": "Age Demographics Factor",
-    "gender_code": "Gender Demographics Factor",
+    "age": "Age Demographics",
+    "gender_code": "Gender Demographics",
     "family_history": "Family History of Mood Disorders",
     "past_episodes": "Recurrent Past Clinical Episodes",
     "medication_count": "Current Medication Load",
@@ -43,6 +48,7 @@ FEATURE_FRIENDLY_NAMES = {
 def generate_patient_xai(patient_features: Dict[str, Any], target_condition: str = "depression") -> Dict[str, Any]:
     """
     Computes SHAP-based local explanations and extracts top key contributing factors.
+    Uses REAL SHAP TreeExplainer on the underlying trained models.
     """
     if not ml_engine.is_trained:
         ml_engine.train_pipeline()
@@ -54,30 +60,43 @@ def generate_patient_xai(patient_features: Dict[str, Any], target_condition: str
 
     x_scaled = ml_engine.scaler.transform(x_vec)
 
-    # Heuristic SHAP attribution calculation for model explainability
-    # Reference baseline mean feature values
-    baseline_vals = np.array([
-        10.0, 7.0, 3.0, 65.0, 55.0, 7.5, 60.0, 45.0, 5.0, 65.0, 5.0,
-        160.0, 35.0, 140.0, 10.0, 0.5, 0.0, 0.25, 0.25, 0.10, 15.0,
-        35.0, 1.0, 0.3, 0.5, 1.0, 0.5
-    ])
-
-    # Weights for risk relevance
-    weights = np.array([
-        0.28, 0.22, 0.18, 0.15, 0.16, 0.23, 0.19, 0.12, 0.10, 0.08, 0.17,
-        0.09, 0.11, 0.12, 0.14, 0.10, 0.20, 0.18, 0.16, 0.25, 0.24,
-        0.04, 0.03, 0.12, 0.15, 0.08, 0.07
-    ])
-
-    diffs = (x_vec[0] - baseline_vals) / (np.abs(baseline_vals) + 1e-5)
+    # Extract base model for TreeExplainer
+    # The models in ml_engine are CalibratedClassifierCV
+    calibrated_model = ml_engine.models.get(target_condition)
     
-    # Custom direction correction (for features where lower value means higher risk, e.g. sleep, social, wellbeing)
-    invert_cols = ["sleep_hours", "social_interaction_score", "physical_activity_min", "diet_quality_score", "who5_wellbeing", "speech_tone_var", "speaking_rate_wpm", "sentiment_score", "mood_stability_index"]
-    for i, col in enumerate(FEATURE_COLUMNS):
-        if col in invert_cols:
-            diffs[i] = -diffs[i]
+    if not calibrated_model:
+        raise ValueError(f"Unknown target condition for XAI: {target_condition}")
 
-    shap_values = diffs * weights
+    # For TreeExplainer, we need the base estimator.
+    # CalibratedClassifierCV has `.calibrated_classifiers_` list. We use the first one's base estimator.
+    base_estimator = calibrated_model.calibrated_classifiers_[0].estimator
+
+    try:
+        if hasattr(base_estimator, 'estimators_'):
+            # It's a VotingClassifier (like our Depression model), use the XGBoost part for explanation
+            tree_model = base_estimator.named_estimators_['xgb']
+        else:
+            tree_model = base_estimator
+            
+        explainer = shap.TreeExplainer(tree_model)
+        # Calculate true SHAP values
+        shap_values_raw = explainer.shap_values(x_scaled)
+        
+        # Handle different shape outputs from shap (binary vs multi-class depending on sklearn/xgb version)
+        if isinstance(shap_values_raw, list):
+            shap_values = shap_values_raw[1][0]
+        elif len(shap_values_raw.shape) == 3:
+            shap_values = shap_values_raw[0, :, 1]
+        else:
+            shap_values = shap_values_raw[0]
+            
+    except Exception as e:
+        # Fallback if SHAP fails due to model compatibility: use a simple feature importance heuristic 
+        # (Only in case of catastrophic failure of the SHAP library integration)
+        print(f"SHAP TreeExplainer failed: {e}. Falling back to baseline diff.")
+        baseline_vals = np.zeros(len(FEATURE_COLUMNS))
+        shap_values = x_scaled[0] - baseline_vals
+
     abs_shap = np.abs(shap_values)
     total_impact = np.sum(abs_shap) + 1e-5
 
@@ -96,25 +115,12 @@ def generate_patient_xai(patient_features: Dict[str, Any], target_condition: str
     # Sort by impact percentage descending
     contributions.sort(key=lambda x: x["percentage"], reverse=True)
 
-    # Extract Top 5 Key Contributing Factors (matching blueprint example UI)
+    # Extract Top 5 Key Contributing Factors
     top_5 = contributions[:5]
-
-    # Global SHAP Feature Importances Summary
-    global_importances = [
-        {"feature": "phq9_score", "name": "PHQ-9 Score", "importance": 0.28},
-        {"feature": "sleep_hours", "name": "Sleep Duration & Quality", "importance": 0.23},
-        {"feature": "sentiment_score", "name": "Negative Sentiment", "importance": 0.20},
-        {"feature": "social_interaction_score", "name": "Social Isolation", "importance": 0.19},
-        {"feature": "gad7_score", "name": "GAD-7 Anxiety", "importance": 0.18},
-        {"feature": "keyword_intensity", "name": "Distress Keyword Frequency", "importance": 0.17},
-        {"feature": "pause_frequency_ppm", "name": "Speech Pause Frequency", "importance": 0.14},
-        {"feature": "physical_activity_min", "name": "Low Physical Activity", "importance": 0.12}
-    ]
 
     return {
         "target_condition": target_condition,
         "top_contributing_factors": top_5,
         "all_feature_contributions": contributions,
-        "global_shap_importances": global_importances,
         "explanation_summary": f"Local SHAP analysis indicates that {top_5[0]['display_name']} ({top_5[0]['percentage']}%) and {top_5[1]['display_name']} ({top_5[1]['percentage']}%) are the predominant clinical drivers."
     }

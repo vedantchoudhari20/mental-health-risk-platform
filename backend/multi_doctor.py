@@ -55,7 +55,7 @@ def get_patient_consultation_logs(patient_id: str) -> List[Dict[str, Any]]:
         {
             "log_id": "COSIG-INITIAL",
             "patient_id": patient_id,
-            "doctor_name": "Dr. Vedant Sharma, MD",
+            "doctor_name": "Dr. Rohan Shinde, MBBS, MD Psychiatry",
             "qualification": "MD Psychiatry (Primary Attending Physician)",
             "hospital": "Memorial Neuropsychiatric Hospital",
             "license_number": "MP-88421-IN",

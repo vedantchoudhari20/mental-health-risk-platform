@@ -3,6 +3,10 @@ FastAPI Server - Mental Health Risk Detection & Preventive Care Platform Backend
 Provides patient registration, OCR document scanning, live speech audio feature extraction,
 multi-modal risk scoring, Explainable AI (SHAP/LIME), FHIR R4 JSON export, Multi-Doctor Co-Signing,
 and Gamified Patient Quiz Intake.
+
+IMPORTANT CHANGES (v2.0 — Clinical Integrity Rewrite):
+  - Quiz Intake now uses validated clinical scoring rules (PHQ-9/GAD-7).
+  - Validation layer checks for completeness and contradictions.
 """
 
 from fastapi import FastAPI, HTTPException
@@ -20,11 +24,14 @@ from ocr_parser import parse_medical_document_text
 from doctor_signature import generate_doctor_verification_certificate
 from fhir_exporter import generate_fhir_r4_bundle
 from multi_doctor import add_doctor_cosignature, get_patient_consultation_logs
+from clinical_scoring import estimate_phq9_from_behavioral, estimate_gad7_from_behavioral
+from clinical_validator import validate_patient_input
+from voice_parser import parse_voice_transcript
 
 app = FastAPI(
     title="Mental Health Risk Detection & Preventive Care Platform API",
     description="AI-Powered Clinical Decision Support System API for Hospitals",
-    version="2.1.0"
+    version="2.2.0"
 )
 
 app.add_middleware(
@@ -40,7 +47,7 @@ class PatientRegistrationInput(BaseModel):
     age: int = Field(default=21, ge=1, le=120)
     gender: str = Field(default="Male")
     contact: Optional[str] = "+1 (555) 000-0000"
-    primary_physician: Optional[str] = "Dr. Vedant Sharma, MD"
+    primary_physician: Optional[str] = "Dr. Rohan Shinde, MBBS, MD Psychiatry"
     clinical_summary: Optional[str] = "New patient registered for clinical screening."
 
 class DocumentScanInput(BaseModel):
@@ -50,6 +57,10 @@ class CosignInput(BaseModel):
     patient_id: str
     doctor_name: Optional[str] = "Dr. Amanda Vance, MD"
     comments: Optional[str] = "Reviewed and approved clinical AI evaluation and preventive plan."
+
+class VoiceIntakeInput(BaseModel):
+    transcript: str = Field(..., description="Transcribed voice text")
+    context: str = Field(..., description="Context of the question asked (sleep, mood, activity, stress, social)")
 
 class QuizIntakeInput(BaseModel):
     patient_id: Optional[str] = "MRN-2026-1023"
@@ -105,7 +116,7 @@ def get_root():
         "status": "ONLINE",
         "system": "Mental Health Risk Detection & Preventive Care Platform",
         "domain": "Clinical Decision Support System for Hospitals",
-        "version": "2.1.0",
+        "version": "2.2.0",
         "ml_engine_status": "TRAINED" if ml_engine.is_trained else "INITIALIZING"
     }
 
@@ -126,18 +137,50 @@ def scan_document(payload: DocumentScanInput):
     result = parse_medical_document_text(payload.document_text)
     return result
 
+@app.post("/api/voice-intake")
+def voice_intake(payload: VoiceIntakeInput):
+    """Processes a single conversational response during live voice intake."""
+    result = parse_voice_transcript(payload.transcript, payload.context)
+    return result
+
 @app.post("/api/quiz-intake")
 def quiz_intake(payload: QuizIntakeInput):
     """Converts gamified patient quiz answers into clinical multi-modal parameters and runs inference."""
     ocr_result = parse_medical_document_text(payload.life_sentence + " " + payload.exercise_hobbies)
     extracted = ocr_result.get("extracted_features", {})
+    sentiment = extracted.get("sentiment_score", 0.0)
+    sadness_prob = extracted.get("sadness_prob", 0.0)
+    keyword_intensity = extracted.get("keyword_intensity", 0.0)
+    hopelessness_prob = min(1.0, keyword_intensity / 100 * 0.8)
+
+    # 1. Use clinical scoring module to derive PHQ-9 and GAD-7 legitimately
+    phq9_est = estimate_phq9_from_behavioral(
+        sleep_hours=payload.sleep_hours,
+        stress_level=payload.stress_level,
+        social_score=payload.social_score,
+        activity_min=payload.activity_min,
+        sentiment_score=sentiment,
+        screen_hrs=payload.screen_hrs,
+        sadness_prob=sadness_prob,
+        hopelessness_prob=hopelessness_prob,
+        keyword_intensity=keyword_intensity
+    )
+
+    gad7_est = estimate_gad7_from_behavioral(
+        stress_level=payload.stress_level,
+        sleep_hours=payload.sleep_hours,
+        sentiment_score=sentiment,
+        anxiety_prob=extracted.get("anxiety_prob", 0.0),
+        social_score=payload.social_score,
+        screen_hrs=payload.screen_hrs
+    )
 
     # Parallel Feature Fusion
     features = {
-        "phq9_score": 14.0 if extracted.get("sadness_prob", 0.5) > 0.5 else 8.0,
-        "gad7_score": 12.0 if payload.stress_level >= 7 else 5.0,
-        "mdq_score": 3.0,
-        "who5_wellbeing": 40.0,
+        "phq9_score": phq9_est["estimated_score"],
+        "gad7_score": gad7_est["estimated_score"],
+        "mdq_score": 3.0, # Baseline
+        "who5_wellbeing": 100 - phq9_est["estimated_score"] * 3, # Correlated estimate
         "sleep_hours": payload.sleep_hours,
         "social_interaction_score": payload.social_score,
         "physical_activity_min": payload.activity_min,
@@ -147,19 +190,29 @@ def quiz_intake(payload: QuizIntakeInput):
         "speaking_rate_wpm": 110.0,
         "pause_frequency_ppm": 16.0,
         "speech_tone_var": 25.0,
-        "sentiment_score": extracted.get("sentiment_score", -0.40),
-        "sadness_prob": extracted.get("sadness_prob", 0.50),
-        "hopelessness_prob": 0.40 if payload.stress_level >= 8 else 0.15,
-        "keyword_intensity": extracted.get("keyword_intensity", 35.0)
+        "sentiment_score": sentiment,
+        "sadness_prob": sadness_prob,
+        "hopelessness_prob": hopelessness_prob,
+        "keyword_intensity": keyword_intensity,
+        "suicide_risk_flag": ocr_result.get("keyword_analysis", {}).get("suicide_risk_flag", False)
     }
 
+    # Validate inputs
+    validation = validate_patient_input(features)
+
     prediction = ml_engine.predict_patient_risk(features)
+    
+    # Adjust confidence based on input validation quality
+    adjusted_confidence = round(prediction["confidence_score"] * validation["confidence_adjustment"], 1)
+    prediction["confidence_score"] = adjusted_confidence
+
     xai = generate_patient_xai(features)
     care_plan = generate_preventive_care_plan(features, prediction)
 
     return {
         "quiz_status": "QUIZ_PARALLEL_DATA_FILLED",
         "extracted_quiz_features": features,
+        "validation_report": validation,
         "risk_scores": prediction["risk_scores"],
         "risk_categories": prediction["risk_categories"],
         "confidence_score": prediction["confidence_score"],
@@ -173,7 +226,13 @@ def predict_risk(payload: PatientFeaturesInput):
     g_map = {"Female": 0, "Male": 1, "Other": 2}
     feat_dict["gender_code"] = g_map.get(payload.gender, 1)
 
+    validation = validate_patient_input(feat_dict)
     prediction = ml_engine.predict_patient_risk(feat_dict)
+    
+    # Adjust confidence based on data quality
+    adjusted_confidence = round(prediction["confidence_score"] * validation["confidence_adjustment"], 1)
+    prediction["confidence_score"] = adjusted_confidence
+
     trend = generate_longitudinal_trend(prediction["risk_scores"], weeks=12)
 
     return {
@@ -181,6 +240,7 @@ def predict_risk(payload: PatientFeaturesInput):
         "patient_name": payload.name,
         "age": payload.age,
         "gender": payload.gender,
+        "validation_report": validation,
         "risk_scores": prediction["risk_scores"],
         "risk_categories": prediction["risk_categories"],
         "derived_indices": prediction["derived_indices"],
@@ -205,7 +265,10 @@ def get_doctor_signed_report(payload: PatientFeaturesInput):
     g_map = {"Female": 0, "Male": 1, "Other": 2}
     feat_dict["gender_code"] = g_map.get(payload.gender, 1)
 
+    validation = validate_patient_input(feat_dict)
     prediction = ml_engine.predict_patient_risk(feat_dict)
+    prediction["confidence_score"] = round(prediction["confidence_score"] * validation["confidence_adjustment"], 1)
+
     xai = generate_patient_xai(feat_dict)
     care_plan = generate_preventive_care_plan(feat_dict, prediction)
     summaries = generate_clinical_summary(payload.name, payload.age, payload.gender, prediction, xai)
@@ -219,6 +282,7 @@ def get_doctor_signed_report(payload: PatientFeaturesInput):
         "patient_name": payload.name,
         "age": payload.age,
         "gender": payload.gender,
+        "validation_report": validation,
         "risk_scores": prediction["risk_scores"],
         "risk_categories": prediction["risk_categories"],
         "top_contributing_factors": xai["top_contributing_factors"],

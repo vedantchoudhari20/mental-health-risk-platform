@@ -117,6 +117,9 @@ python -m http.server 3000
 ```
 mental-health-risk-platform/
 ├── backend/
+│   ├── clinical_scoring.py      # Multi-dimensional risk score normalizer & weightings
+│   ├── clinical_validator.py    # Range validation & clinical bounds integrity checker
+│   ├── voice_parser.py          # Acoustic pitch fundamental frequency & pause analyzer
 │   ├── main.py                  # FastAPI server & route handlers
 │   ├── ml_engine.py             # Multi-modal ensemble ML models (RF, XGBoost, LightGBM)
 │   ├── xai_engine.py            # Local SHAP feature attribution & explainability

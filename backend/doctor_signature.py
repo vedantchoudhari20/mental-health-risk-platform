@@ -9,7 +9,7 @@ from typing import Dict, Any
 
 DEFAULT_DOCTOR_PROFILE = {
     "doctor_id": "DOC-9942",
-    "name": "Dr. Vedant Sharma, MD",
+    "name": "Dr. Rohan Shinde, MBBS, MD Psychiatry",
     "qualification": "MD Psychiatry, DPM (Neuropsychiatry)",
     "designation": "Chief of Clinical Neuropsychiatry & AI Decision Inspection",
     "hospital": "Memorial Neuropsychiatric Hospital & Research Center",

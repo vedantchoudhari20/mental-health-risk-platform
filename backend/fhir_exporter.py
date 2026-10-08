@@ -93,7 +93,7 @@ def generate_fhir_r4_bundle(patient_id: str, patient_name: str, age: int, gender
         ],
         "name": [
             {
-                "text": doctor_cert.get("doctor_name", "Dr. Vedant Sharma, MD"),
+                "text": doctor_cert.get("doctor_name", "Dr. Rohan Shinde, MBBS, MD Psychiatry"),
                 "prefix": ["Dr."]
             }
         ],

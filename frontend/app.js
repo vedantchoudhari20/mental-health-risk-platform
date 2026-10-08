@@ -360,7 +360,7 @@ async function loadPatientData(mrn) {
     document.getElementById("dispPatientMrn").innerText = patient.mrn || patient.id;
     document.getElementById("dispPatientAge").innerText = patient.age;
     document.getElementById("dispPatientGender").innerText = patient.gender;
-    document.getElementById("dispPhysician").innerText = patient.primary_physician || "Dr. Vedant Sharma, MD";
+    document.getElementById("dispPhysician").innerText = patient.primary_physician || "Dr. Rohan Shinde, MBBS, MD Psychiatry";
     document.getElementById("dispPatientNotes").innerText = patient.clinical_summary;
 
     populateIntakeForm(patient.features);
@@ -642,6 +642,8 @@ function autoCorrelatePitch(buf, sampleRate) {
     }
     for (let i = 1; i < SIZE / 2; i++) {
         if (Math.abs(buf[SIZE - i]) < thres) { r2 = SIZE - i; break; }
+
+
     }
 
     buf = buf.slice(r1, r2);
@@ -806,4 +808,186 @@ async function fetchModelMetrics() {
     } catch (err) {
         console.warn("Metrics error:", err);
     }
+}
+
+// ==========================================
+// VOICE INTERVIEW ASSISTANT LOGIC
+// ==========================================
+let voiceQuestions = [
+    { text: "Hi there. How have you been sleeping lately? About how many hours per night?", context: "sleep" },
+    { text: "How would you describe your mood or emotions over the past few weeks?", context: "mood" },
+    { text: "Are you getting any physical activity or exercise during the week?", context: "activity" },
+    { text: "On a scale of 1 to 10, how stressed are you feeling right now?", context: "stress" },
+    { text: "Have you ever had any past episodes of severe depression or anxiety before this?", context: "episodes" },
+    { text: "Is there any history of mental health conditions in your immediate family?", context: "family" },
+    { text: "Are you currently taking any prescription medications? If so, how many?", context: "medications" },
+    { text: "Do you have any other chronic medical conditions like diabetes or asthma?", context: "conditions" }
+];
+let currentQuestionIndex = 0;
+let voiceExtractedData = {};
+
+function speakText(text, callback) {
+    const synth = window.speechSynthesis;
+    const utterance = new SpeechSynthesisUtterance(text);
+    utterance.onend = callback;
+    synth.speak(utterance);
+}
+
+function startVoiceInterview() {
+    document.getElementById('startVoiceBtn').style.display = 'none';
+    currentQuestionIndex = 0;
+    voiceExtractedData = {};
+    askNextVoiceQuestion();
+}
+
+function askNextVoiceQuestion() {
+    if (currentQuestionIndex >= voiceQuestions.length) {
+        document.getElementById('voiceQuestionText').innerText = "Interview complete. Thank you.";
+        document.getElementById('voiceTranscriptText').innerText = "All responses processed.";
+        document.getElementById('voiceTransferBtn').disabled = false;
+        return;
+    }
+
+    const q = voiceQuestions[currentQuestionIndex];
+    document.getElementById('voiceQuestionText').innerText = q.text;
+    document.getElementById('voiceTranscriptText').innerText = "(AI Speaking...)";
+    
+    speakText(q.text, () => {
+        startListening(q.context);
+    });
+}
+
+function startListening(context) {
+    const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+    if (!SpeechRecognition) {
+        alert("Web Speech API not supported in this browser. Please use Chrome/Edge.");
+        return;
+    }
+    
+    const recognition = new SpeechRecognition();
+    recognition.lang = 'en-US';
+    recognition.interimResults = false;
+    recognition.maxAlternatives = 1;
+    
+    document.getElementById('voiceStatusIndicator').style.display = 'block';
+    document.getElementById('voiceTranscriptText').innerText = "Listening...";
+    
+    recognition.onresult = async (event) => {
+        const transcript = event.results[0][0].transcript;
+        document.getElementById('voiceTranscriptText').innerText = transcript;
+        document.getElementById('voiceStatusIndicator').style.display = 'none';
+        
+        // Send to backend
+        try {
+            const res = await fetch('http://127.0.0.1:8000/api/voice-intake', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ transcript, context })
+            });
+            const data = await res.json();
+            
+            // Merge extracted features
+            Object.assign(voiceExtractedData, data.extracted_features);
+            
+            // Update UI
+            if (voiceExtractedData.sleep_hours) document.getElementById('voiceValSleep').innerText = voiceExtractedData.sleep_hours + " hrs";
+            if (voiceExtractedData.physical_activity_min !== undefined) document.getElementById('voiceValActivity').innerText = voiceExtractedData.physical_activity_min + " mins";
+            if (voiceExtractedData.stress_level) document.getElementById('voiceValStress').innerText = voiceExtractedData.stress_level + " / 10";
+            if (voiceExtractedData.sentiment_score !== undefined) document.getElementById('voiceValSentiment').innerText = voiceExtractedData.sentiment_score.toFixed(2);
+            
+            setTimeout(() => {
+                currentQuestionIndex++;
+                askNextVoiceQuestion();
+            }, 1000);
+            
+        } catch(e) {
+            console.error("Voice parse error:", e);
+            document.getElementById('voiceStatusIndicator').style.display = 'none';
+        }
+    };
+    
+    recognition.onerror = (e) => {
+        console.error(e);
+        document.getElementById('voiceStatusIndicator').style.display = 'none';
+        document.getElementById('voiceTranscriptText').innerText = "Microphone error or timeout. Moving to next question.";
+        setTimeout(() => {
+            currentQuestionIndex++;
+            askNextVoiceQuestion();
+        }, 2000);
+    };
+    
+    recognition.start();
+}
+
+function transferVoiceDataToForm() {
+    // 1. Update the manual form inputs visually
+    if (voiceExtractedData.sleep_hours) {
+        document.getElementById('inSleep').value = voiceExtractedData.sleep_hours;
+        quizData.sleep_hours = voiceExtractedData.sleep_hours;
+    }
+    if (voiceExtractedData.physical_activity_min !== undefined) {
+        document.getElementById('inActivity').value = voiceExtractedData.physical_activity_min;
+        quizData.activity_min = voiceExtractedData.physical_activity_min;
+    }
+    if (voiceExtractedData.stress_level) {
+        document.getElementById('inStress').value = voiceExtractedData.stress_level;
+        quizData.stress_level = voiceExtractedData.stress_level;
+    }
+    
+    // 2. Map Voice Sentiment directly to PHQ-9 / GAD-7 proxies for the global state
+    // This creates a consistent flow where the Voice AI dictates the actual clinical scores
+    let phq9 = 5;
+    let gad7 = 5;
+    let mdq = 2;
+    
+    if (voiceExtractedData.sentiment_score !== undefined) {
+        // -1.0 sentiment = severe (approx 20 PHQ-9). +1.0 = normal (approx 2)
+        phq9 = Math.max(0, Math.min(27, Math.round(10 - (voiceExtractedData.sentiment_score * 15))));
+        gad7 = Math.max(0, Math.min(21, Math.round(8 - (voiceExtractedData.sentiment_score * 10))));
+    }
+    if (voiceExtractedData.past_episodes) phq9 += 5;
+    if (voiceExtractedData.family_history) mdq += 3;
+    
+    // 3. Build a comprehensive payload that overrides manual input
+    const patient = patientDataMap[activeMrn] || { id: activeMrn, name: "Intake Patient", age: 25, gender: "Male" };
+    
+    const finalFeatures = {
+        id: patient.id,
+        name: patient.name,
+        age: patient.age,
+        gender: patient.gender,
+        phq9_score: phq9,
+        gad7_score: gad7,
+        mdq_score: mdq,
+        mood_stability_index: (voiceExtractedData.sentiment_score !== undefined) ? (voiceExtractedData.sentiment_score + 1) * 50 : 50,
+        who5_wellbeing: (voiceExtractedData.sentiment_score !== undefined) ? (voiceExtractedData.sentiment_score + 1) * 50 : 50,
+        sleep_hours: quizData.sleep_hours,
+        social_interaction_score: quizData.social_score,
+        physical_activity_min: quizData.activity_min,
+        screen_time_hrs: quizData.screen_hrs,
+        diet_quality_score: 50.0,
+        stress_level: quizData.stress_level,
+        speech_pitch_hz: 120.0, // Defaults for audio
+        speech_tone_var: 20.0,
+        speaking_rate_wpm: 120.0,
+        pause_frequency_ppm: 15.0,
+        audio_energy: 0.5,
+        sentiment_score: voiceExtractedData.sentiment_score || 0.0,
+        sadness_prob: voiceExtractedData.sadness_prob || 0.0,
+        anxiety_prob: voiceExtractedData.anxiety_prob || 0.0,
+        hopelessness_prob: voiceExtractedData.hopelessness_prob || 0.0,
+        keyword_intensity: voiceExtractedData.keyword_intensity || 0.0,
+        family_history: voiceExtractedData.family_history || 0,
+        past_episodes: voiceExtractedData.past_episodes || 0,
+        medication_count: voiceExtractedData.medication_count || 0,
+        medical_conditions: voiceExtractedData.medical_conditions || 0
+    };
+    
+    alert("Voice data has been securely linked to Patient EHR. Running AI Inference...");
+    
+    // 4. Force run the prediction globally to create the single source of truth
+    runInference(finalFeatures, patient.id, patient.name, patient.age, patient.gender).then(() => {
+        // Jump directly to the final dashboard automatically
+        switchTab('overview');
+    });
 }

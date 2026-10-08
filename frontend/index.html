@@ -49,7 +49,7 @@
                 <div class="doctor-badge">
                     <i class="fa-solid fa-user-md"></i>
                     <div>
-                        <strong>Dr. Vedant Sharma, MD</strong>
+                        <strong>Dr. Rohan Shinde, MBBS, MD Psychiatry</strong>
                         <small>Attending Psychiatrist (#MP-88421)</small>
                     </div>
                 </div>
@@ -125,6 +125,9 @@
             <button class="emr-tab" data-tab="report" onclick="switchTab('report')">
                 <i class="fa-solid fa-file-signature"></i> Official Doctor Diagnostic Report
             </button>
+            <button class="emr-tab" data-tab="voice" onclick="switchTab('voice')">
+                <i class="fa-solid fa-microphone-lines"></i> Live Voice Interview
+            </button>
             <button class="emr-tab" data-tab="benchmarks" onclick="switchTab('benchmarks')">
                 <i class="fa-solid fa-database"></i> Datasets & Validation
             </button>
@@ -146,7 +149,7 @@
                     <div class="profile-meta">
                         <span>Age: <strong id="dispPatientAge">21</strong></span> |
                         <span>Gender: <strong id="dispPatientGender">Male</strong></span> |
-                        <span>Attending Physician: <strong id="dispPhysician">Dr. Vedant Sharma, MD</strong></span> |
+                        <span>Attending Physician: <strong id="dispPhysician">Dr. Rohan Shinde, MBBS, MD Psychiatry</strong></span> |
                         <span>Intake Date: <strong>2026-08-03</strong></span>
                     </div>
                     <p class="profile-summary" id="dispPatientNotes">
@@ -275,6 +278,56 @@
                 </div>
                 <div style="height: 300px; position: relative;">
                     <canvas id="trendChart"></canvas>
+                </div>
+            </div>
+        </section>
+
+        <!-- TAB: LIVE VOICE INTERVIEW -->
+        <section id="tab-voice" class="tab-pane">
+            <div class="emr-card">
+                <div class="card-title">
+                    <h2><i class="fa-solid fa-headset text-teal"></i> Live Clinical Voice Assistant</h2>
+                    <span class="sub-tag">VADER NLP + Speech Recognition</span>
+                </div>
+                <p>The AI assistant will verbally ask clinical assessment questions. Speak your response naturally to auto-fill clinical indicators.</p>
+                
+                <div class="voice-interview-container margin-top-md" style="background: rgba(0,0,0,0.2); padding: 25px; border-radius: 8px; border-left: 4px solid var(--accent-1);">
+                    <h3 id="voiceQuestionText" style="color: var(--accent-1); margin-bottom: 15px;">Click "Start Live Interview" to begin...</h3>
+                    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px;">
+                        <button class="btn btn-outline" id="startVoiceBtn" onclick="startVoiceInterview()"><i class="fa-solid fa-microphone"></i> Start Live Interview</button>
+                        <div id="voiceStatusIndicator" class="pulse-ring" style="display: none; width: 15px; height: 15px; background: var(--danger); border-radius: 50%;"></div>
+                    </div>
+                    
+                    <div style="background: rgba(255,255,255,0.05); padding: 15px; border-radius: 5px; min-height: 80px;">
+                        <strong style="color: #aaa;">Patient Transcript:</strong>
+                        <p id="voiceTranscriptText" style="font-style: italic; margin-top: 10px;">Listening...</p>
+                    </div>
+                </div>
+
+                <div class="margin-top-lg">
+                    <h3>Extracted Clinical Parameters</h3>
+                    <div class="grid-4 margin-top-sm" id="voiceExtractedGrid">
+                        <div class="stat-box">
+                            <div class="stat-label">Sleep Extracted</div>
+                            <div class="stat-value" id="voiceValSleep">--</div>
+                        </div>
+                        <div class="stat-box">
+                            <div class="stat-label">Activity Extracted</div>
+                            <div class="stat-value" id="voiceValActivity">--</div>
+                        </div>
+                        <div class="stat-box">
+                            <div class="stat-label">Stress Level Extracted</div>
+                            <div class="stat-value" id="voiceValStress">--</div>
+                        </div>
+                        <div class="stat-box">
+                            <div class="stat-label">Sentiment NLP</div>
+                            <div class="stat-value" id="voiceValSentiment">--</div>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="margin-top-md" style="text-align: right;">
+                    <button class="btn" id="voiceTransferBtn" onclick="transferVoiceDataToForm()" disabled><i class="fa-solid fa-share-from-square"></i> Transfer to Form & Analyze</button>
                 </div>
             </div>
         </section>
@@ -548,7 +601,7 @@
                         <h4>PATIENT INFORMATION</h4>
                         <div>Name: <strong id="repPatientName">Vedant</strong></div>
                         <div>Age / Gender: <strong id="repAgeGender">21 Y / Male</strong></div>
-                        <div>Primary Physician: <strong>Dr. Vedant Sharma, MD</strong></div>
+                        <div>Primary Physician: <strong>Dr. Rohan Shinde, MBBS, MD Psychiatry</strong></div>
                     </div>
                     <div>
                         <h4>EVALUATION METADATA</h4>
@@ -625,9 +678,9 @@
                     </div>
 
                     <div class="sig-details-box">
-                        <div class="sig-script" id="repDocName">Dr. Vedant Sharma, MD</div>
+                        <div class="sig-script" id="repDocName">Dr. Rohan Shinde, MBBS, MD Psychiatry</div>
                         <div class="sig-line">_______________________________________</div>
-                        <div><strong id="repDocTitle">Dr. Vedant Sharma, MD Psychiatry</strong></div>
+                        <div><strong id="repDocTitle">Dr. Rohan Shinde, MBBS, MD Psychiatry</strong></div>
                         <div class="small-text">Chief of Clinical Neuropsychiatry (License #MP-88421-IN)</div>
                         <div class="small-text">Cryptographic Signature Hash: <code id="repSigHash">DSIG-88421-A9F3-4C10-8812</code></div>
                     </div>
@@ -701,7 +754,7 @@
                 </div>
                 <div class="form-row">
                     <label>Attending Physician:</label>
-                    <input type="text" id="regPhysician" class="emr-input" value="Dr. Vedant Sharma, MD">
+                    <input type="text" id="regPhysician" class="emr-input" value="Dr. Rohan Shinde, MBBS, MD Psychiatry">
                 </div>
                 <div class="form-row">
                     <label>Initial Clinical Summary / Notes:</label>
@@ -721,6 +774,6 @@
         <p>Memorial MindCare AI Platform &copy; 2026 | Multi-Modal Explainable Decision Support Engine</p>
     </footer>
 
-    <script src="app.js"></script>
+    <script src="app.js?v=2"></script>
 </body>
 </html>
