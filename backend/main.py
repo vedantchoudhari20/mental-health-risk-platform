@@ -27,11 +27,15 @@ from multi_doctor import add_doctor_cosignature, get_patient_consultation_logs
 from clinical_scoring import estimate_phq9_from_behavioral, estimate_gad7_from_behavioral
 from clinical_validator import validate_patient_input
 from voice_parser import parse_voice_transcript
+from gemini_service import (
+    get_gemini_api_key, set_gemini_api_key, test_gemini_connection,
+    analyze_narrative_with_gemini
+)
 
 app = FastAPI(
     title="Mental Health Risk Detection & Preventive Care Platform API",
     description="AI-Powered Clinical Decision Support System API for Hospitals",
-    version="2.2.0"
+    version="2.3.0"
 )
 
 app.add_middleware(
@@ -41,6 +45,9 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+class GeminiKeyInput(BaseModel):
+    api_key: str
 
 class PatientRegistrationInput(BaseModel):
     name: str = Field(..., example="Vedant")
@@ -61,6 +68,7 @@ class CosignInput(BaseModel):
 class VoiceIntakeInput(BaseModel):
     transcript: str = Field(..., description="Transcribed voice text")
     context: str = Field(..., description="Context of the question asked (sleep, mood, activity, stress, social)")
+    question_text: Optional[str] = Field(default="", description="The exact question asked by the interviewer")
 
 class QuizIntakeInput(BaseModel):
     patient_id: Optional[str] = "MRN-2026-1023"
@@ -137,10 +145,25 @@ def scan_document(payload: DocumentScanInput):
     result = parse_medical_document_text(payload.document_text)
     return result
 
+@app.get("/api/config/gemini-status")
+def get_gemini_status():
+    key = get_gemini_api_key()
+    return {
+        "configured": bool(key),
+        "status": "CONNECTED" if key else "LOCAL_MODE",
+        "model": "gemini-1.5-flash / gemini-2.0-flash" if key else "Local Explainable Heuristic Engine",
+        "description": "Google Gemini Intelligence Active (Cloud Augmented)" if key else "Local Mode Active (Zero API Key required)"
+    }
+
+@app.post("/api/config/gemini-key")
+def configure_gemini_key(payload: GeminiKeyInput):
+    res = set_gemini_api_key(payload.api_key)
+    return res
+
 @app.post("/api/voice-intake")
 def voice_intake(payload: VoiceIntakeInput):
-    """Processes a single conversational response during live voice intake."""
-    result = parse_voice_transcript(payload.transcript, payload.context)
+    """Processes a single conversational response during live voice intake with Gemini intelligence and abrupt-answer pivots."""
+    result = parse_voice_transcript(payload.transcript, payload.context, payload.question_text)
     return result
 
 @app.post("/api/quiz-intake")
@@ -152,6 +175,22 @@ def quiz_intake(payload: QuizIntakeInput):
     sadness_prob = extracted.get("sadness_prob", 0.0)
     keyword_intensity = extracted.get("keyword_intensity", 0.0)
     hopelessness_prob = min(1.0, keyword_intensity / 100 * 0.8)
+
+    empathetic_reflection = None
+    cognitive_distortions = []
+
+    # If Gemini is active, run deep clinical narrative and cognitive distortion analysis
+    if get_gemini_api_key():
+        try:
+            gem_narrative = analyze_narrative_with_gemini(payload.life_sentence + " " + payload.exercise_hobbies)
+            if gem_narrative and isinstance(gem_narrative, dict):
+                sentiment = gem_narrative.get("sentiment_score", sentiment)
+                sadness_prob = gem_narrative.get("sadness_prob", sadness_prob)
+                hopelessness_prob = gem_narrative.get("hopelessness_prob", hopelessness_prob)
+                empathetic_reflection = gem_narrative.get("empathetic_reflection")
+                cognitive_distortions = gem_narrative.get("cognitive_distortions", [])
+        except Exception:
+            pass
 
     # 1. Use clinical scoring module to derive PHQ-9 and GAD-7 legitimately
     phq9_est = estimate_phq9_from_behavioral(
@@ -217,7 +256,9 @@ def quiz_intake(payload: QuizIntakeInput):
         "risk_categories": prediction["risk_categories"],
         "confidence_score": prediction["confidence_score"],
         "top_contributing_factors": xai["top_contributing_factors"],
-        "recommended_actions": care_plan["recommended_actions"]
+        "recommended_actions": care_plan["recommended_actions"],
+        "empathetic_reflection": empathetic_reflection,
+        "cognitive_distortions": cognitive_distortions
     }
 
 @app.post("/api/predict")
@@ -271,7 +312,8 @@ def get_doctor_signed_report(payload: PatientFeaturesInput):
 
     xai = generate_patient_xai(feat_dict)
     care_plan = generate_preventive_care_plan(feat_dict, prediction)
-    summaries = generate_clinical_summary(payload.name, payload.age, payload.gender, prediction, xai)
+    qualitative = feat_dict.get("clinical_summary", f"{payload.name} presents with sleep concerns, mood fluctuations, and stress.")
+    summaries = generate_clinical_summary(payload.name, payload.age, payload.gender, prediction, xai, qualitative_notes=qualitative)
     
     cert = generate_doctor_verification_certificate(payload.id, payload.name, prediction["risk_scores"])
     consultation_logs = get_patient_consultation_logs(payload.id)

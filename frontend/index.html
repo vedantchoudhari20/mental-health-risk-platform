@@ -54,6 +54,11 @@
                     </div>
                 </div>
 
+                <button class="btn-gemini-status" id="geminiStatusBtn" onclick="openGeminiModal()" title="Configure Google Gemini AI Engine">
+                    <i class="fa-solid fa-wand-magic-sparkles"></i>
+                    <span id="geminiStatusText">Gemini AI</span>
+                </button>
+
                 <button class="btn-theme-toggle" id="themeToggleBtn" title="Toggle Clinical Theme">
                     <i class="fa-solid fa-moon"></i>
                 </button>
@@ -301,6 +306,22 @@
                     <div style="background: rgba(255,255,255,0.05); padding: 15px; border-radius: 5px; min-height: 80px;">
                         <strong style="color: #aaa;">Patient Transcript:</strong>
                         <p id="voiceTranscriptText" style="font-style: italic; margin-top: 10px;">Listening...</p>
+                    </div>
+
+                    <!-- Abrupt Answer / Typed Simulation Bar for Testing -->
+                    <div style="display: flex; gap: 8px; margin-top: 10px;">
+                        <input type="text" id="voiceSimInput" class="emr-input" placeholder="Type answer to test (e.g. 'my birthday is tomorrow')..." style="flex: 1; font-size: 0.85rem;" onkeydown="if(event.key==='Enter') submitManualVoiceText()">
+                        <button type="button" class="btn btn-secondary" onclick="submitManualVoiceText()" style="padding: 6px 14px; font-size: 0.82rem;"><i class="fa-solid fa-paper-plane"></i> Test Answer</button>
+                    </div>
+
+                    <div id="voiceAiFeedbackBox" class="voice-ai-feedback-box margin-top-sm" style="display: none; background: rgba(6, 182, 212, 0.12); border-left: 3px solid var(--color-teal); padding: 12px 16px; border-radius: 6px;">
+                        <div style="display: flex; align-items: flex-start; gap: 10px;">
+                            <i class="fa-solid fa-robot text-teal" style="font-size: 1.1rem; margin-top: 2px;"></i>
+                            <div>
+                                <strong style="color: var(--color-teal); font-size: 0.8rem; text-transform: uppercase;">Clinical AI Response & Pivot:</strong>
+                                <p id="voiceAiFeedbackText" style="margin-top: 4px; font-size: 0.88rem; color: #FFF; line-height: 1.4;"></p>
+                            </div>
+                        </div>
                     </div>
                 </div>
 
@@ -766,6 +787,32 @@
                     <button type="submit" class="btn-primary"><i class="fa-solid fa-check"></i> Register Patient & Generate Unique MRN</button>
                 </div>
             </form>
+        </div>
+    </div>
+
+    <!-- Gemini AI Configuration Modal -->
+    <div id="geminiModal" class="modal-overlay hidden">
+        <div class="modal-card" style="max-width: 580px;">
+            <div class="modal-header">
+                <h3><i class="fa-solid fa-wand-magic-sparkles text-teal"></i> Google Gemini AI Engine Configuration</h3>
+                <button class="btn-close" onclick="closeGeminiModal()">&times;</button>
+            </div>
+            <p class="small-text">
+                Integrates Google Gemini 1.5/2.0 Flash for adaptive clinical questioning, intelligent abrupt/off-topic conversational pivots, and psychiatric SOAP progress notes.
+            </p>
+            <div class="form-row margin-top-md">
+                <label>Gemini API Key (Google AI Studio):</label>
+                <input type="password" id="inpGeminiKey" class="emr-input" placeholder="AIzaSy..." autocomplete="off">
+                <small class="text-muted" style="margin-top: 4px;">Get your free API key at <a href="https://aistudio.google.com/app/apikey" target="_blank" style="color: var(--color-teal); text-decoration: underline;">aistudio.google.com</a> (Free tier, zero charges).</small>
+            </div>
+            <div id="geminiStatusFeedback" class="margin-top-xs" style="font-size: 0.82rem; min-height: 24px; display: flex; align-items: center;"></div>
+            <div class="modal-footer margin-top-md" style="display: flex; justify-content: space-between; align-items: center;">
+                <button type="button" class="btn-secondary" onclick="clearGeminiKey()"><i class="fa-solid fa-power-off"></i> Switch to Local Mode</button>
+                <div style="display: flex; gap: 8px;">
+                    <button type="button" class="btn-secondary" onclick="closeGeminiModal()">Close</button>
+                    <button type="button" class="btn-primary" onclick="saveGeminiKey()"><i class="fa-solid fa-plug"></i> Test & Save Key</button>
+                </div>
+            </div>
         </div>
     </div>
 

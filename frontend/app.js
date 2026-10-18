@@ -41,6 +41,7 @@ document.addEventListener("DOMContentLoaded", () => {
     initShapChart();
     fetchPatients();
     fetchModelMetrics();
+    fetchGeminiStatus();
 
     // Initial GSAP Page Load Entrance Animation
     runGsapEntranceAnimation();
@@ -857,10 +858,92 @@ function askNextVoiceQuestion() {
     });
 }
 
+let voiceFollowupAttempts = 0;
+
+async function handleVoiceTranscript(transcript, context) {
+    document.getElementById('voiceTranscriptText').innerText = transcript;
+    document.getElementById('voiceStatusIndicator').style.display = 'none';
+    
+    // Clear simulation input if used
+    const simInp = document.getElementById('voiceSimInput');
+    if (simInp) simInp.value = '';
+
+    // Send to backend with question context
+    try {
+        const currentQ = voiceQuestions[currentQuestionIndex] ? voiceQuestions[currentQuestionIndex].text : "";
+        const res = await fetch(`${API_BASE}/api/voice-intake`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ transcript, context, question_text: currentQ })
+        });
+        const data = await res.json();
+        
+        // Merge extracted features
+        Object.assign(voiceExtractedData, data.extracted_features);
+        
+        // Update UI
+        if (voiceExtractedData.sleep_hours) document.getElementById('voiceValSleep').innerText = voiceExtractedData.sleep_hours + " hrs";
+        if (voiceExtractedData.physical_activity_min !== undefined) document.getElementById('voiceValActivity').innerText = voiceExtractedData.physical_activity_min + " mins";
+        if (voiceExtractedData.stress_level) document.getElementById('voiceValStress').innerText = voiceExtractedData.stress_level + " / 10";
+        if (voiceExtractedData.sentiment_score !== undefined) document.getElementById('voiceValSentiment').innerText = voiceExtractedData.sentiment_score.toFixed(2);
+        
+        // Display and speak AI Conversational Reflection / Pivot
+        if (data.conversational_reply) {
+            const box = document.getElementById('voiceAiFeedbackBox');
+            const txt = document.getElementById('voiceAiFeedbackText');
+            if (box && txt) {
+                txt.innerText = data.conversational_reply;
+                box.style.display = 'block';
+            }
+        }
+
+        const replyToSpeak = data.conversational_reply || "Response noted.";
+        
+        // If abrupt/off-topic response detected, give patient an empathetic retry for this specific question
+        if (data.requires_followup && voiceFollowupAttempts < 1) {
+            voiceFollowupAttempts++;
+            speakText(replyToSpeak, () => {
+                setTimeout(() => {
+                    const q = voiceQuestions[currentQuestionIndex];
+                    if (q) {
+                        document.getElementById('voiceTranscriptText').innerText = "(Listening for clarification...)";
+                        startListening(q.context);
+                    }
+                }, 600);
+            });
+        } else {
+            voiceFollowupAttempts = 0;
+            speakText(replyToSpeak, () => {
+                setTimeout(() => {
+                    currentQuestionIndex++;
+                    askNextVoiceQuestion();
+                }, 800);
+            });
+        }
+        
+    } catch(e) {
+        console.error("Voice parse error:", e);
+        document.getElementById('voiceStatusIndicator').style.display = 'none';
+        setTimeout(() => {
+            currentQuestionIndex++;
+            askNextVoiceQuestion();
+        }, 1000);
+    }
+}
+
+function submitManualVoiceText() {
+    const simInp = document.getElementById('voiceSimInput');
+    if (!simInp) return;
+    const text = simInp.value.trim();
+    if (!text) return;
+    const q = voiceQuestions[currentQuestionIndex] || { context: "sleep" };
+    handleVoiceTranscript(text, q.context);
+}
+
 function startListening(context) {
     const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
     if (!SpeechRecognition) {
-        alert("Web Speech API not supported in this browser. Please use Chrome/Edge.");
+        document.getElementById('voiceTranscriptText').innerText = "Speech API not available. You can type answers in the test box below!";
         return;
     }
     
@@ -874,49 +957,20 @@ function startListening(context) {
     
     recognition.onresult = async (event) => {
         const transcript = event.results[0][0].transcript;
-        document.getElementById('voiceTranscriptText').innerText = transcript;
-        document.getElementById('voiceStatusIndicator').style.display = 'none';
-        
-        // Send to backend
-        try {
-            const res = await fetch('http://127.0.0.1:8000/api/voice-intake', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ transcript, context })
-            });
-            const data = await res.json();
-            
-            // Merge extracted features
-            Object.assign(voiceExtractedData, data.extracted_features);
-            
-            // Update UI
-            if (voiceExtractedData.sleep_hours) document.getElementById('voiceValSleep').innerText = voiceExtractedData.sleep_hours + " hrs";
-            if (voiceExtractedData.physical_activity_min !== undefined) document.getElementById('voiceValActivity').innerText = voiceExtractedData.physical_activity_min + " mins";
-            if (voiceExtractedData.stress_level) document.getElementById('voiceValStress').innerText = voiceExtractedData.stress_level + " / 10";
-            if (voiceExtractedData.sentiment_score !== undefined) document.getElementById('voiceValSentiment').innerText = voiceExtractedData.sentiment_score.toFixed(2);
-            
-            setTimeout(() => {
-                currentQuestionIndex++;
-                askNextVoiceQuestion();
-            }, 1000);
-            
-        } catch(e) {
-            console.error("Voice parse error:", e);
-            document.getElementById('voiceStatusIndicator').style.display = 'none';
-        }
+        handleVoiceTranscript(transcript, context);
     };
     
     recognition.onerror = (e) => {
         console.error(e);
         document.getElementById('voiceStatusIndicator').style.display = 'none';
-        document.getElementById('voiceTranscriptText').innerText = "Microphone error or timeout. Moving to next question.";
-        setTimeout(() => {
-            currentQuestionIndex++;
-            askNextVoiceQuestion();
-        }, 2000);
+        document.getElementById('voiceTranscriptText').innerText = "Microphone paused. You can speak again or type in the test box below.";
     };
     
-    recognition.start();
+    try {
+        recognition.start();
+    } catch (err) {
+        console.warn("Recognition already active or blocked:", err);
+    }
 }
 
 function transferVoiceDataToForm() {
@@ -990,4 +1044,98 @@ function transferVoiceDataToForm() {
         // Jump directly to the final dashboard automatically
         switchTab('overview');
     });
+}
+
+// ==========================================
+// GEMINI AI CONFIGURATION & MODAL HANDLERS
+// ==========================================
+async function fetchGeminiStatus() {
+    try {
+        const res = await fetch(`${API_BASE}/api/config/gemini-status`);
+        if (res.ok) {
+            const data = await res.json();
+            const btn = document.getElementById("geminiStatusBtn");
+            const txt = document.getElementById("geminiStatusText");
+            if (!btn || !txt) return;
+            if (data.configured) {
+                btn.classList.add("connected");
+                txt.innerHTML = '<i class="fa-solid fa-circle-check text-emerald"></i> Gemini Active';
+                btn.setAttribute("title", `Google Gemini Active (${data.model})`);
+            } else {
+                btn.classList.remove("connected");
+                txt.innerHTML = '<i class="fa-solid fa-server text-teal"></i> Local Mode';
+                btn.setAttribute("title", "Running on Local Explainable Heuristic Engine (Offline Safe)");
+            }
+        }
+    } catch (e) {
+        console.warn("Gemini status check error:", e);
+    }
+}
+
+function openGeminiModal() {
+    const modal = document.getElementById("geminiModal");
+    if (!modal) return;
+    modal.classList.remove("hidden");
+    const feedback = document.getElementById("geminiStatusFeedback");
+    if (feedback) feedback.innerHTML = "";
+    if (typeof gsap !== "undefined") {
+        gsap.from("#geminiModal .modal-card", { duration: 0.35, scale: 0.92, opacity: 0, ease: "back.out(1.4)" });
+    }
+}
+
+function closeGeminiModal() {
+    const modal = document.getElementById("geminiModal");
+    if (modal) modal.classList.add("hidden");
+}
+
+async function saveGeminiKey() {
+    const keyInp = document.getElementById("inpGeminiKey");
+    const key = keyInp ? keyInp.value.trim() : "";
+    const feedback = document.getElementById("geminiStatusFeedback");
+    if (!key) {
+        if (feedback) feedback.innerHTML = '<span class="text-rose"><i class="fa-solid fa-triangle-exclamation"></i> Please paste a valid Gemini API key.</span>';
+        return;
+    }
+    
+    if (feedback) feedback.innerHTML = '<span class="text-teal"><i class="fa-solid fa-spinner fa-spin"></i> Validating key with Google Gemini API...</span>';
+
+    try {
+        const res = await fetch(`${API_BASE}/api/config/gemini-key`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ api_key: key })
+        });
+        const data = await res.json();
+        if (data.status === "CONNECTED") {
+            if (feedback) feedback.innerHTML = `<span class="text-emerald"><i class="fa-solid fa-circle-check"></i> Connected! Model: ${data.model}</span>`;
+            fetchGeminiStatus();
+            setTimeout(() => {
+                closeGeminiModal();
+            }, 1200);
+        } else {
+            if (feedback) feedback.innerHTML = `<span class="text-rose"><i class="fa-solid fa-circle-xmark"></i> ${data.message || 'Validation failed.'}</span>`;
+        }
+    } catch (e) {
+        if (feedback) feedback.innerHTML = `<span class="text-rose"><i class="fa-solid fa-circle-xmark"></i> Network error: ${e.message}</span>`;
+    }
+}
+
+async function clearGeminiKey() {
+    const feedback = document.getElementById("geminiStatusFeedback");
+    try {
+        await fetch(`${API_BASE}/api/config/gemini-key`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ api_key: "" })
+        });
+        const keyInp = document.getElementById("inpGeminiKey");
+        if (keyInp) keyInp.value = "";
+        if (feedback) feedback.innerHTML = '<span class="text-teal"><i class="fa-solid fa-info-circle"></i> Switched to 100% offline Local Heuristic Mode.</span>';
+        fetchGeminiStatus();
+        setTimeout(() => {
+            closeGeminiModal();
+        }, 1200);
+    } catch (e) {
+        if (feedback) feedback.innerHTML = `<span class="text-rose">Error resetting: ${e.message}</span>`;
+    }
 }

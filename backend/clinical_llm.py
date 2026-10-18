@@ -1,15 +1,16 @@
 """
 Clinical Natural Language Insight Synthesizer & Zero-API-Key Local Intelligence Generator.
 Generates comprehensive clinical summaries, risk rationales, and clinician documentation locally out-of-the-box.
-Supports optional Google Gemini API key if present.
+Seamlessly integrates Google Gemini 1.5/2.0 Flash for authentic psychiatric SOAP progress notes when API key is provided.
 """
 
-import os
-from typing import Dict, Any
+from typing import Dict, Any, Optional
+from gemini_service import get_gemini_api_key, generate_gemini_soap_note
 
-def generate_clinical_summary(patient_name: str, age: int, gender: str, risk_data: Dict[str, Any], xai_data: Dict[str, Any]) -> Dict[str, str]:
+def generate_clinical_summary(patient_name: str, age: int, gender: str, risk_data: Dict[str, Any], xai_data: Dict[str, Any], qualitative_notes: str = "") -> Dict[str, str]:
     """
-    Synthesizes rich clinical summaries and doctor notes locally without needing external paid API keys.
+    Synthesizes rich clinical summaries and doctor notes.
+    Uses Google Gemini Flash when API key is active; otherwise falls back to local heuristic engine with zero downtime.
     """
     scores = risk_data.get("risk_scores", {})
     categories = risk_data.get("risk_categories", {})
@@ -22,7 +23,29 @@ def generate_clinical_summary(patient_name: str, age: int, gender: str, risk_dat
 
     top_factor_names = ", ".join([f["display_name"] for f in top_factors[:3]]) if top_factors else "questionnaire & behavioral metrics"
 
-    # Patient narrative summary
+    # 1. Attempt Gemini Psychiatric SOAP synthesis if key is present
+    if get_gemini_api_key():
+        try:
+            gemini_notes = generate_gemini_soap_note(
+                patient_name=patient_name,
+                age=age,
+                gender=gender,
+                risk_scores=scores,
+                risk_categories=categories,
+                top_factors=top_factors,
+                qualitative_notes=qualitative_notes
+            )
+            if gemini_notes and gemini_notes.get("soap_note"):
+                return {
+                    "patient_summary": gemini_notes.get("clinical_summary", f"Evaluation for {patient_name}: Depression {dep}%, Anxiety {anx}%."),
+                    "plain_language_explanation": gemini_notes.get("patient_explanation", "Your evaluation indicates stress and sleep disruption."),
+                    "doctor_note": gemini_notes.get("soap_note"),
+                    "llm_engine_used": "Google Gemini 1.5/2.0 Flash (Cloud Augmented)"
+                }
+        except Exception:
+            pass  # Fall through seamlessly to local heuristic engine
+
+    # 2. Local Fallback Heuristic Generation
     patient_summary = (
         f"Patient {patient_name} ({age}y/o {gender}) was evaluated using the multi-modal clinical decision support system. "
         f"Assessment indicates a {categories.get('depression', 'MODERATE')} risk for Depression ({dep}%), "
@@ -31,22 +54,22 @@ def generate_clinical_summary(patient_name: str, age: int, gender: str, risk_dat
         f"Primary risk drivers identified via SHAP feature attribution include {top_factor_names}."
     )
 
-    # Simple language explanation for patient/family
     plain_language_explanation = (
         f"Hello {patient_name}, your clinical evaluation shows elevated stress and low mood indicators, primarily influenced by "
         f"sleep disruption, reduced daily physical movement, and feeling disconnected. "
         f"Your recommended action plan focuses on restoring regular sleep patterns, gentle daily exercise, and structured relaxation techniques."
     )
 
-    # Doctor Note / Clinical Impression
     doctor_note = (
-        f"CLINICAL IMPRESSION & PROGRESS NOTE:\n"
-        f"Date: 2026-08-03 | Patient: {patient_name} (ID: P-1023)\n"
-        f"Diagnosis / Risk Profile: Major Depressive Index ({dep}% - {categories.get('depression', 'MODERATE')}), GAD Anxiety Index ({anx}%), "
-        f"Bipolar Screening ({bip}%), Suicide Alert Index ({sui}%).\n"
-        f"Key Clinical Drivers: {top_factor_names}.\n"
-        f"Plan: Implement evidence-based CBT exercises, optimize sleep hygiene (7-8 hours), initiate 30-min daily walking protocol, "
-        f"and schedule clinical follow-up within 7 days."
+        f"CLINICAL IMPRESSION & SOAP PROGRESS NOTE:\n"
+        f"Attending Physician: Dr. Rohan Shinde, MBBS, MD Psychiatry\n"
+        f"Patient: {patient_name} | Age/Sex: {age}Y/{gender}\n\n"
+        f"S (SUBJECTIVE): Patient presents for multi-modal psychiatric intake. Endorses mood fluctuation, sleep pattern irregularities, and daytime stress.\n"
+        f"O (OBJECTIVE): Multi-Modal Risk Scores: Depression {dep}% ({categories.get('depression', 'MODERATE')}), GAD-7 Anxiety {anx}%, "
+        f"Bipolar Screening {bip}%, Suicide Alert Index {sui}%.\n"
+        f"Top SHAP Feature Contributors: {top_factor_names}.\n"
+        f"A (ASSESSMENT): Clinical presentation consistent with {categories.get('depression', 'Moderate')} depressive indicators compounded by sleep deficit and autonomic stress.\n"
+        f"P (PLAN): Evidence-based CBT behavioral activation, sleep hygiene protocol (target 7-8 hrs), 30-min daily aerobic walking, and clinical reassessment scheduled."
     )
 
     return {
