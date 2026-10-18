@@ -65,28 +65,31 @@ def set_gemini_api_key(key: str, persist: bool = True) -> Dict[str, Any]:
     }
 
 
+# Model priority chain: newest free model first, then fallbacks
+GEMINI_MODELS = ["gemini-3.8-flash", "gemini-2.0-flash", "gemini-1.5-flash"]
+
+
 def test_gemini_connection(api_key: str) -> Dict[str, Any]:
-    """Pings Gemini API to check key validity."""
+    """Pings Gemini API to check key validity across available models."""
     if not api_key:
         return {"success": False, "error": "No API key provided."}
     
-    # Try gemini-1.5-flash first, then gemini-2.0-flash
-    models = ["gemini-1.5-flash", "gemini-2.0-flash"]
-    for model in models:
+    for model in GEMINI_MODELS:
         url = f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent?key={api_key}"
         payload = {
-            "contents": [{"parts": [{"text": "Hello, respond with 'OK'."}]}],
+            "contents": [{"parts": [{"text": "Hello, respond with OK."}]}],
             "generationConfig": {"maxOutputTokens": 10}
         }
         try:
-            resp = requests.post(url, json=payload, timeout=10)
+            resp = requests.post(url, json=payload, timeout=12)
             if resp.status_code == 200:
                 return {"success": True, "model": model}
-            elif resp.status_code == 400 or resp.status_code == 403:
+            elif resp.status_code in (400, 403):
                 data = resp.json()
                 msg = data.get("error", {}).get("message", f"HTTP {resp.status_code}")
                 return {"success": False, "error": f"Gemini API Error: {msg}"}
-        except Exception as e:
+            # 404 means model deprecated, try next
+        except Exception:
             continue
     return {"success": False, "error": "Network timeout or unable to reach Google Gemini endpoint."}
 
@@ -97,8 +100,7 @@ def _call_gemini_json(prompt: str, system_instruction: str = "") -> Optional[Dic
     if not key:
         return None
 
-    models = ["gemini-1.5-flash", "gemini-2.0-flash"]
-    for model in models:
+    for model in GEMINI_MODELS:
         url = f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent?key={key}"
         
         contents = []
@@ -107,31 +109,47 @@ def _call_gemini_json(prompt: str, system_instruction: str = "") -> Optional[Dic
         else:
             contents.append({"role": "user", "parts": [{"text": prompt}]})
 
+        # Note: gemini-3.8-flash is a thinking model; do NOT use responseMimeType application/json
+        # as it conflicts with thinking token output. Parse JSON from text instead.
         payload = {
             "contents": contents,
             "generationConfig": {
                 "temperature": 0.2,
-                "responseMimeType": "application/json"
+                "maxOutputTokens": 1500
             }
         }
 
         try:
-            resp = requests.post(url, json=payload, timeout=12)
+            resp = requests.post(url, json=payload, timeout=18)
             if resp.status_code == 200:
                 data = resp.json()
                 candidates = data.get("candidates", [])
                 if candidates:
-                    parts = candidates[0].get("content", {}).get("parts", [])
-                    if parts:
-                        text_out = parts[0].get("text", "").strip()
-                        # Clean potential markdown formatting
-                        if text_out.startswith("```json"):
-                            text_out = text_out[7:]
-                        if text_out.startswith("```"):
-                            text_out = text_out[3:]
-                        if text_out.endswith("```"):
-                            text_out = text_out[:-3]
-                        return json.loads(text_out.strip())
+                    content_parts = candidates[0].get("content", {}).get("parts", [])
+                    # Collect all text parts (skip thought/thinking parts)
+                    text_out = ""
+                    for part in content_parts:
+                        txt = part.get("text", "")
+                        if txt:
+                            text_out += txt
+                    text_out = text_out.strip()
+                    if not text_out:
+                        continue  # thinking model returned empty, try next
+                    # Extract JSON from markdown code fence if present
+                    if "```json" in text_out:
+                        text_out = text_out.split("```json", 1)[1]
+                        text_out = text_out.split("```", 1)[0]
+                    elif "```" in text_out:
+                        text_out = text_out.split("```", 1)[1]
+                        text_out = text_out.split("```", 1)[0]
+                    # Find first { ... } block
+                    start = text_out.find("{")
+                    end = text_out.rfind("}")
+                    if start != -1 and end != -1:
+                        text_out = text_out[start:end+1]
+                    return json.loads(text_out.strip())
+            elif resp.status_code == 404:
+                continue  # model deprecated, try next
         except Exception:
             continue
     return None

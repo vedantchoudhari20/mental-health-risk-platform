@@ -157,7 +157,7 @@ def get_gemini_status():
     return {
         "configured": bool(key),
         "status": "CONNECTED" if key else "LOCAL_MODE",
-        "model": "gemini-1.5-flash / gemini-2.0-flash" if key else "Local Explainable Heuristic Engine",
+        "model": "gemini-3.8-flash (Thinking)" if key else "Local Explainable Heuristic Engine",
         "description": "Google Gemini Intelligence Active (Cloud Augmented)" if key else "Local Mode Active (Zero API Key required)"
     }
 
