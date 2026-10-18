@@ -185,6 +185,7 @@ CRITICAL RULES:
      * sleep: "sleep_hours" (float 0.0 - 24.0)
      * activity: "physical_activity_min" (float minutes/day)
      * stress: "stress_level" (int 1 - 10)
+     * vitals / bp: "systolic_bp" (float, e.g. 120.0), "diastolic_bp" (float, e.g. 80.0), "bp_level" (string, e.g. "Normal (120/80 mmHg)", "Elevated BP (130-139/80-89)", "Stage 2 High BP (>140/90)", "Low BP / Hypotensive")
      * social: "social_interaction_score" (float 0 - 100)
      * family: "family_history" (int 0 or 1)
      * episodes: "past_episodes" (int 0 or 1)

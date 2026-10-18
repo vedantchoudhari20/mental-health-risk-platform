@@ -381,18 +381,25 @@
                     <h2><i class="fa-solid fa-gamepad text-teal"></i> Interactive Patient Mind Checkup Quiz</h2>
                     <span class="sub-tag">Parallel Data Entry & Real-Time AI Rescoring</span>
                 </div>
-                <p>Answer the friendly 5-step questions below. Your answers will automatically extract clinical indicators and perform parallel data filling for the AI model!</p>
+                <p>Answer the friendly 6-step checkup below. Your responses automatically extract clinical psychiatric features, map physiological vitals (BP levels & sleep), and perform parallel data filling for the AI model!</p>
                 <div class="quiz-progress-bar margin-top-xs">
-                    <div class="quiz-progress-fill" id="quizProgressBar" style="width: 20%;"></div>
+                    <div class="quiz-progress-fill" id="quizProgressBar" style="width: 16.6%;"></div>
                 </div>
             </div>
 
             <div class="quiz-card-container margin-top-md">
-                <!-- Step 1: Life Sentence -->
+                <!-- Step 1: Mind & Daily Narrative -->
                 <div class="quiz-step-card active" id="quizStep1">
-                    <div class="quiz-step-num">Step 1 of 5</div>
+                    <div class="quiz-step-num">Step 1 of 6 &bull; Mind Space</div>
                     <h3><i class="fa-solid fa-pen-nib text-teal"></i> Describe your life right now in a sentence or two</h3>
-                    <p class="small-text">What has been on your mind lately? How are you feeling overall?</p>
+                    <p class="small-text">What has been on your mind lately? Choose an emotion quick-tag or write your thoughts:</p>
+                    <div class="quiz-chip-group">
+                        <button type="button" class="btn-quiz-chip selected" onclick="selectQuizMood('Fatigued & Overwhelmed')">⚡ Fatigued & Overwhelmed</button>
+                        <button type="button" class="btn-quiz-chip" onclick="selectQuizMood('Persistent Low Energy')">🌧️ Low Energy & Sad</button>
+                        <button type="button" class="btn-quiz-chip" onclick="selectQuizMood('Mind Racing & Anxious')">🌀 Mind Racing & Anxious</button>
+                        <button type="button" class="btn-quiz-chip" onclick="selectQuizMood('Calm & Balanced')">😌 Calm & Balanced</button>
+                        <button type="button" class="btn-quiz-chip" onclick="selectQuizMood('Motivated & Focused')">🌟 Motivated & Focused</button>
+                    </div>
                     <textarea id="qzSentence" rows="3" class="emr-textarea margin-top-xs" placeholder="e.g. I feel exhausted and overwhelmed by daily demands lately...">I feel exhausted and overwhelmed by daily demands lately, with low energy and persistent stress.</textarea>
                     <div class="quiz-step-actions margin-top-md">
                         <span></span>
@@ -400,63 +407,124 @@
                     </div>
                 </div>
 
-                <!-- Step 2: Sleep Quality -->
+                <!-- Step 2: Sleep Habits -->
                 <div class="quiz-step-card" id="quizStep2">
-                    <div class="quiz-step-num">Step 2 of 5</div>
+                    <div class="quiz-step-num">Step 2 of 6 &bull; Rest Score</div>
                     <h3><i class="fa-solid fa-bed text-indigo"></i> How many hours of restful sleep do you get on average?</h3>
+                    <p class="small-text">Sleep consistency directly influences neurochemical regulation and stress thresholds:</p>
                     <div class="quiz-options-grid margin-top-xs">
-                        <button type="button" class="btn-quiz-opt" onclick="selectQuizSleep(4.0)">Severe Deficit (< 5 hours)</button>
-                        <button type="button" class="btn-quiz-opt selected" onclick="selectQuizSleep(5.5)">Restless Sleep (5 - 6 hours)</button>
-                        <button type="button" class="btn-quiz-opt" onclick="selectQuizSleep(7.5)">Healthy Sleep (7 - 8 hours)</button>
-                        <button type="button" class="btn-quiz-opt" onclick="selectQuizSleep(10.0)">Excessive / Oversleep (> 9 hours)</button>
+                        <button type="button" class="btn-quiz-opt" onclick="selectQuizSleep(4.0)">
+                            <span class="quiz-opt-title">🌙 Severe Insomnia / Deficit (&lt; 5 hours)</span>
+                            <span class="quiz-opt-sub">Broken, restless sleep with frequent night awakenings and exhaustion</span>
+                        </button>
+                        <button type="button" class="btn-quiz-opt selected" onclick="selectQuizSleep(5.5)">
+                            <span class="quiz-opt-title">🥱 Fragmented / Restless (5 - 6 hours)</span>
+                            <span class="quiz-opt-sub">Difficulty falling asleep, daytime grogginess and low restoration</span>
+                        </button>
+                        <button type="button" class="btn-quiz-opt" onclick="selectQuizSleep(7.5)">
+                            <span class="quiz-opt-title">💤 Healthy & Restorative (7 - 8 hours)</span>
+                            <span class="quiz-opt-sub">Regular circadian rhythm, waking up refreshed with clear cognition</span>
+                        </button>
+                        <button type="button" class="btn-quiz-opt" onclick="selectQuizSleep(10.0)">
+                            <span class="quiz-opt-title">🛌 Excessive / Oversleeping (&gt; 9 hours)</span>
+                            <span class="quiz-opt-sub">Prolonged bed rest, difficulty mobilizing, lingering lethargy</span>
+                        </button>
                     </div>
                     <div class="quiz-step-actions margin-top-md">
                         <button type="button" class="btn-secondary" onclick="nextQuizStep(1)"><i class="fa-solid fa-arrow-left"></i> Back</button>
-                        <button type="button" class="btn-primary" onclick="nextQuizStep(3)">Next: Social Media & Contact <i class="fa-solid fa-arrow-right"></i></button>
+                        <button type="button" class="btn-primary" onclick="nextQuizStep(3)">Next: Blood Pressure & Vitals <i class="fa-solid fa-arrow-right"></i></button>
                     </div>
                 </div>
 
-                <!-- Step 3: Social Contact & Screen Time -->
+                <!-- Step 3: Vitals, Blood Pressure & Somatic Tension -->
                 <div class="quiz-step-card" id="quizStep3">
-                    <div class="quiz-step-num">Step 3 of 5</div>
-                    <h3><i class="fa-solid fa-users text-emerald"></i> How is your daily social interaction vs social media presence?</h3>
+                    <div class="quiz-step-num">Step 3 of 6 &bull; Body Vitals & BP</div>
+                    <h3><i class="fa-solid fa-heart-pulse text-rose"></i> How do your physical vitals & blood pressure feel lately?</h3>
+                    <p class="small-text">Somatic symptoms and autonomic arousal are strongly linked with anxiety and psychological burden:</p>
                     <div class="quiz-options-grid margin-top-xs">
-                        <button type="button" class="btn-quiz-opt selected" onclick="selectQuizSocial(20, 10.0)">High Social Media (>8h), Isolated In-Person</button>
-                        <button type="button" class="btn-quiz-opt" onclick="selectQuizSocial(50, 6.0)">Balanced Social Media & Friends (4-6h)</button>
-                        <button type="button" class="btn-quiz-opt" onclick="selectQuizSocial(85, 3.0)">Active In-Person Connections, Low Screen Time</button>
+                        <button type="button" class="btn-quiz-opt selected" onclick="selectQuizBP('Normal (120/80 mmHg)', 120, 80)">
+                            <span class="quiz-opt-title">💚 Optimal Baseline: Normal BP (approx 120/80 mmHg)</span>
+                            <span class="quiz-opt-sub">Calm resting heart rate, steady breathing, no recurring tension headaches</span>
+                        </button>
+                        <button type="button" class="btn-quiz-opt" onclick="selectQuizBP('Pre-Hypertension (130/85 mmHg)', 130, 85)">
+                            <span class="quiz-opt-title">💛 Mild Somatic Tension: Borderline BP (approx 130/85 mmHg)</span>
+                            <span class="quiz-opt-sub">Occasional neck stiffness, tight shoulders, or end-of-day stress headaches</span>
+                        </button>
+                        <button type="button" class="btn-quiz-opt" onclick="selectQuizBP('Stage 2 High BP / Spikes (145/95 mmHg)', 145, 95)">
+                            <span class="quiz-opt-title">❤️ High Stress Spikes: Elevated BP (approx 145/95 mmHg)</span>
+                            <span class="quiz-opt-sub">Pounding heart, racing pulse sensations, chest tightness, acute agitation</span>
+                        </button>
+                        <button type="button" class="btn-quiz-opt" onclick="selectQuizBP('Hypotensive / Low (100/65 mmHg)', 100, 65)">
+                            <span class="quiz-opt-title">💙 Low Circulation / Energy: Low BP (approx 100/65 mmHg)</span>
+                            <span class="quiz-opt-sub">Lightheadedness upon standing, feeling faint, cold extremities, sluggishness</span>
+                        </button>
                     </div>
                     <div class="quiz-step-actions margin-top-md">
                         <button type="button" class="btn-secondary" onclick="nextQuizStep(2)"><i class="fa-solid fa-arrow-left"></i> Back</button>
-                        <button type="button" class="btn-primary" onclick="nextQuizStep(4)">Next: Habits & Exercise <i class="fa-solid fa-arrow-right"></i></button>
+                        <button type="button" class="btn-primary" onclick="nextQuizStep(4)">Next: Social Media & Balance <i class="fa-solid fa-arrow-right"></i></button>
                     </div>
                 </div>
 
-                <!-- Step 4: Habits & Exercise -->
+                <!-- Step 4: Social Contact & Screen Time -->
                 <div class="quiz-step-card" id="quizStep4">
-                    <div class="quiz-step-num">Step 4 of 5</div>
-                    <h3><i class="fa-solid fa-person-running text-amber"></i> What are your favorite habits & daily physical activity choices?</h3>
-                    <textarea id="qzHobbies" rows="2" class="emr-textarea margin-top-xs" placeholder="e.g. 15 min light daily walk, reading, listening to music...">Light walking 15 mins daily, listening to music, reading.</textarea>
+                    <div class="quiz-step-num">Step 4 of 6 &bull; Social Balance</div>
+                    <h3><i class="fa-solid fa-users text-emerald"></i> How is your daily social interaction vs social media presence?</h3>
+                    <p class="small-text">Digital isolation and screen habits play a key role in emotional well-being:</p>
                     <div class="quiz-options-grid margin-top-xs">
-                        <button type="button" class="btn-quiz-opt selected" onclick="selectQuizActivity(15)">Minimal Movement (10-20 min/day)</button>
-                        <button type="button" class="btn-quiz-opt" onclick="selectQuizActivity(45)">Moderate Exercise (30-60 min/day)</button>
-                        <button type="button" class="btn-quiz-opt" onclick="selectQuizActivity(90)">Active Fitness (>60 min/day)</button>
+                        <button type="button" class="btn-quiz-opt selected" onclick="selectQuizSocial(20, 10.0)">
+                            <span class="quiz-opt-title">📱 Heavy Screen / Digital Focus (&gt;8h/day)</span>
+                            <span class="quiz-opt-sub">Minimal face-to-face interaction, high screen fatigue, feeling isolated</span>
+                        </button>
+                        <button type="button" class="btn-quiz-opt" onclick="selectQuizSocial(50, 6.0)">
+                            <span class="quiz-opt-title">⚖️ Balanced Hybrid (4 - 6h/day)</span>
+                            <span class="quiz-opt-sub">Moderate digital use with regular family & friends catch-ups</span>
+                        </button>
+                        <button type="button" class="btn-quiz-opt" onclick="selectQuizSocial(85, 3.0)">
+                            <span class="quiz-opt-title">🌿 Active Community & In-Person Presence (&lt;3h/day)</span>
+                            <span class="quiz-opt-sub">Frequent face-to-face support system, healthy digital boundaries</span>
+                        </button>
                     </div>
                     <div class="quiz-step-actions margin-top-md">
                         <button type="button" class="btn-secondary" onclick="nextQuizStep(3)"><i class="fa-solid fa-arrow-left"></i> Back</button>
-                        <button type="button" class="btn-primary" onclick="nextQuizStep(5)">Next: Stress Rating <i class="fa-solid fa-arrow-right"></i></button>
+                        <button type="button" class="btn-primary" onclick="nextQuizStep(5)">Next: Habits & Movement <i class="fa-solid fa-arrow-right"></i></button>
                     </div>
                 </div>
 
-                <!-- Step 5: Stress Rating & Submit -->
+                <!-- Step 5: Habits & Exercise -->
                 <div class="quiz-step-card" id="quizStep5">
-                    <div class="quiz-step-num">Step 5 of 5</div>
-                    <h3><i class="fa-solid fa-bolt text-rose"></i> Rate your overall stress level right now (1 to 10)</h3>
-                    <div class="form-row margin-top-xs">
-                        <label>Current Stress Level: <strong class="text-rose" id="lblQuizStress">8 / 10</strong></label>
-                        <input type="range" id="inpQuizStress" min="1" max="10" value="8" oninput="document.getElementById('lblQuizStress').innerText = this.value + ' / 10'">
+                    <div class="quiz-step-num">Step 5 of 6 &bull; Daily Rhythm</div>
+                    <h3><i class="fa-solid fa-person-running text-amber"></i> What are your favorite habits & daily physical activity choices?</h3>
+                    <textarea id="qzHobbies" rows="2" class="emr-textarea margin-top-xs" placeholder="e.g. 15 min light daily walk, reading, listening to music...">Light walking 15 mins daily, listening to music, reading.</textarea>
+                    <div class="quiz-options-grid margin-top-xs">
+                        <button type="button" class="btn-quiz-opt selected" onclick="selectQuizActivity(15)">
+                            <span class="quiz-opt-title">🛋️ Minimal Movement (10 - 20 min/day)</span>
+                            <span class="quiz-opt-sub">Mostly sedentary desk routine, occasional light walking</span>
+                        </button>
+                        <button type="button" class="btn-quiz-opt" onclick="selectQuizActivity(45)">
+                            <span class="quiz-opt-title">🚶 Moderate Exercise (30 - 60 min/day)</span>
+                            <span class="quiz-opt-sub">Daily brisk walks, yoga, cycling, or recreational sports</span>
+                        </button>
+                        <button type="button" class="btn-quiz-opt" onclick="selectQuizActivity(90)">
+                            <span class="quiz-opt-title">🏃 Dedicated Fitness Routine (&gt;60 min/day)</span>
+                            <span class="quiz-opt-sub">Structured gym workout, distance running, high athletic training</span>
+                        </button>
                     </div>
                     <div class="quiz-step-actions margin-top-md">
                         <button type="button" class="btn-secondary" onclick="nextQuizStep(4)"><i class="fa-solid fa-arrow-left"></i> Back</button>
+                        <button type="button" class="btn-primary" onclick="nextQuizStep(6)">Next: Stress & Submission <i class="fa-solid fa-arrow-right"></i></button>
+                    </div>
+                </div>
+
+                <!-- Step 6: Stress Rating & Submit -->
+                <div class="quiz-step-card" id="quizStep6">
+                    <div class="quiz-step-num">Step 6 of 6 &bull; Stress & Clinical Assessment</div>
+                    <h3><i class="fa-solid fa-bolt text-rose"></i> Rate your overall stress level right now (1 to 10)</h3>
+                    <div class="form-row margin-top-xs">
+                        <label>Current Stress Level: <strong class="text-rose" id="lblQuizStress">8 / 10 (High Clinical Stress)</strong></label>
+                        <input type="range" id="inpQuizStress" min="1" max="10" value="8" oninput="updateQuizStressDisplay(this.value)">
+                    </div>
+                    <div class="quiz-step-actions margin-top-md">
+                        <button type="button" class="btn-secondary" onclick="nextQuizStep(5)"><i class="fa-solid fa-arrow-left"></i> Back</button>
                         <button type="button" class="btn-primary btn-lg" onclick="submitGamifiedQuiz()"><i class="fa-solid fa-wand-magic-sparkles"></i> Submit Quiz & Parallel Data Fill AI Assessment</button>
                     </div>
                 </div>

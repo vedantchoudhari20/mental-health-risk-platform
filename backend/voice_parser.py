@@ -58,6 +58,12 @@ def parse_voice_transcript(transcript: str, context: str, question_text: str = "
 
                 return {
                     "extracted_features": features,
+                    "sentiment_breakdown": {
+                        "sentiment_score": features["sentiment_score"],
+                        "sadness_prob": features["sadness_prob"],
+                        "anxiety_prob": features.get("anxiety_prob", 0.0),
+                        "hopelessness_prob": features["hopelessness_prob"]
+                    },
                     "transcript": transcript,
                     "context": context,
                     "is_relevant": is_rel,
@@ -179,8 +185,44 @@ def parse_voice_transcript(transcript: str, context: str, question_text: str = "
             else:
                 extracted["medical_conditions"] = 1
 
+        elif context in ("vitals", "bp"):
+            bp_match = re.search(r'(\d{2,3})\s*(?:/|over)\s*(\d{2,3})', transcript_lower)
+            if bp_match:
+                sys_val = float(bp_match.group(1))
+                dia_val = float(bp_match.group(2))
+                extracted["systolic_bp"] = sys_val
+                extracted["diastolic_bp"] = dia_val
+                if sys_val >= 140 or dia_val >= 90:
+                    extracted["bp_level"] = "Stage 2 High BP (>140/90)"
+                elif sys_val >= 130 or dia_val >= 80:
+                    extracted["bp_level"] = "Elevated BP (130-139/80-89)"
+                else:
+                    extracted["bp_level"] = "Normal (120/80 mmHg)"
+                conversational_reply = f"Blood pressure noted at {int(sys_val)}/{int(dia_val)} mmHg."
+            elif any(w in transcript_lower for w in ["high", "elevated", "palpitations", "racing", "tightness", "headache", "pounding"]):
+                extracted["systolic_bp"] = 142.0
+                extracted["diastolic_bp"] = 92.0
+                extracted["bp_level"] = "Elevated Tension / High BP"
+                conversational_reply = "Elevated blood pressure sensation and somatic tension noted."
+            elif any(w in transcript_lower for w in ["low", "sluggish", "dizzy", "lightheaded"]):
+                extracted["systolic_bp"] = 98.0
+                extracted["diastolic_bp"] = 62.0
+                extracted["bp_level"] = "Low BP / Hypotensive"
+                conversational_reply = "Low blood pressure and lightheadedness noted."
+            else:
+                extracted["systolic_bp"] = 120.0
+                extracted["diastolic_bp"] = 80.0
+                extracted["bp_level"] = "Normal (120/80 mmHg)"
+                conversational_reply = "Cardiovascular vital signs noted in normal baseline range."
+
     return {
         "extracted_features": extracted,
+        "sentiment_breakdown": {
+            "sentiment_score": extracted["sentiment_score"],
+            "sadness_prob": extracted["sadness_prob"],
+            "anxiety_prob": extracted.get("anxiety_prob", 0.0),
+            "hopelessness_prob": extracted["hopelessness_prob"]
+        },
         "transcript": transcript,
         "context": context,
         "is_relevant": is_relevant,

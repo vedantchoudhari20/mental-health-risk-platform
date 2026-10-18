@@ -19,7 +19,11 @@ let quizData = {
     social_score: 20,
     screen_hrs: 10.0,
     activity_min: 15,
-    stress_level: 8
+    stress_level: 8,
+    bp_level: "Normal (120/80 mmHg)",
+    systolic_bp: 120.0,
+    diastolic_bp: 80.0,
+    mood_feeling: "Fatigued & Overwhelmed"
 };
 
 // Web Audio API State
@@ -126,38 +130,85 @@ function switchTab(tabName) {
 function nextQuizStep(stepNum) {
     document.querySelectorAll(".quiz-step-card").forEach(card => card.classList.remove("active"));
     const nextCard = document.getElementById(`quizStep${stepNum}`);
-    nextCard.classList.add("active");
-    
-    if (typeof gsap !== "undefined") {
-        gsap.from(nextCard, { duration: 0.4, scale: 0.98, opacity: 0, ease: "back.out(1.5)" });
+    if (nextCard) {
+        nextCard.classList.add("active");
+        if (typeof gsap !== "undefined") {
+            gsap.from(nextCard, { duration: 0.4, scale: 0.98, opacity: 0, ease: "back.out(1.5)" });
+        }
     }
 
-    document.getElementById("quizProgressBar").style.width = `${stepNum * 20}%`;
+    const pct = Math.round((stepNum / 6) * 100);
+    const pBar = document.getElementById("quizProgressBar");
+    if (pBar) pBar.style.width = `${pct}%`;
+}
+
+function selectQuizMood(moodText) {
+    quizData.mood_feeling = moodText;
+    const qzSentence = document.getElementById("qzSentence");
+    if (qzSentence) {
+        qzSentence.value = `I am currently experiencing ${moodText.toLowerCase()}, feeling persistent demands and fluctuations in daily energy.`;
+    }
+    const target = event.currentTarget || event.target;
+    if (target && target.parentElement) {
+        target.parentElement.querySelectorAll(".btn-quiz-chip").forEach(btn => btn.classList.remove("selected"));
+        target.classList.add("selected");
+    }
 }
 
 function selectQuizSleep(hours) {
     quizData.sleep_hours = hours;
-    event.target.parentElement.querySelectorAll(".btn-quiz-opt").forEach(btn => btn.classList.remove("selected"));
-    event.target.classList.add("selected");
+    const target = event.currentTarget || event.target.closest(".btn-quiz-opt");
+    if (target && target.parentElement) {
+        target.parentElement.querySelectorAll(".btn-quiz-opt").forEach(btn => btn.classList.remove("selected"));
+        target.classList.add("selected");
+    }
+}
+
+function selectQuizBP(bpLevel, systolic, diastolic) {
+    quizData.bp_level = bpLevel;
+    quizData.systolic_bp = systolic;
+    quizData.diastolic_bp = diastolic;
+    const target = event.currentTarget || event.target.closest(".btn-quiz-opt");
+    if (target && target.parentElement) {
+        target.parentElement.querySelectorAll(".btn-quiz-opt").forEach(btn => btn.classList.remove("selected"));
+        target.classList.add("selected");
+    }
 }
 
 function selectQuizSocial(socialScore, screenHrs) {
     quizData.social_score = socialScore;
     quizData.screen_hrs = screenHrs;
-    event.target.parentElement.querySelectorAll(".btn-quiz-opt").forEach(btn => btn.classList.remove("selected"));
-    event.target.classList.add("selected");
+    const target = event.currentTarget || event.target.closest(".btn-quiz-opt");
+    if (target && target.parentElement) {
+        target.parentElement.querySelectorAll(".btn-quiz-opt").forEach(btn => btn.classList.remove("selected"));
+        target.classList.add("selected");
+    }
 }
 
 function selectQuizActivity(activityMin) {
     quizData.activity_min = activityMin;
-    event.target.parentElement.querySelectorAll(".btn-quiz-opt").forEach(btn => btn.classList.remove("selected"));
-    event.target.classList.add("selected");
+    const target = event.currentTarget || event.target.closest(".btn-quiz-opt");
+    if (target && target.parentElement) {
+        target.parentElement.querySelectorAll(".btn-quiz-opt").forEach(btn => btn.classList.remove("selected"));
+        target.classList.add("selected");
+    }
+}
+
+function updateQuizStressDisplay(val) {
+    const num = parseInt(val);
+    let desc = "Mild / Manageable";
+    if (num >= 9) desc = "Acute Crisis / Severe Burnout";
+    else if (num >= 7) desc = "High Clinical Stress";
+    else if (num >= 4) desc = "Moderate Daily Pressure";
+    const lbl = document.getElementById("lblQuizStress");
+    if (lbl) lbl.innerText = `${num} / 10 (${desc})`;
 }
 
 async function submitGamifiedQuiz() {
     quizData.stress_level = parseInt(document.getElementById("inpQuizStress").value);
     const lifeSentence = document.getElementById("qzSentence").value;
     const hobbies = document.getElementById("qzHobbies").value;
+    const patient = patientDataMap[activeMrn] || { id: activeMrn, name: "Intake Patient", age: 25, gender: "Male" };
 
     const payload = {
         patient_id: activeMrn,
@@ -167,7 +218,11 @@ async function submitGamifiedQuiz() {
         screen_hrs: quizData.screen_hrs,
         exercise_hobbies: hobbies,
         activity_min: quizData.activity_min,
-        stress_level: quizData.stress_level
+        stress_level: quizData.stress_level,
+        bp_level: quizData.bp_level || "Normal (120/80 mmHg)",
+        systolic_bp: quizData.systolic_bp || 120.0,
+        diastolic_bp: quizData.diastolic_bp || 80.0,
+        mood_feeling: quizData.mood_feeling || "Normal"
     };
 
     try {
@@ -179,14 +234,42 @@ async function submitGamifiedQuiz() {
 
         if (res.ok) {
             const data = await res.json();
-            const feats = data.extracted_quiz_features;
+            const feats = data.extracted_quiz_features || data.features;
 
+            // 1. Update global state with prediction, XAI, and doctor report
+            if (data.prediction) currentPrediction = data.prediction;
+            if (data.xai) currentXAI = data.xai;
+            if (data.doctor_report) currentDoctorReport = data.doctor_report;
+
+            // 2. Update active patient in patientDataMap
+            if (patientDataMap[activeMrn]) {
+                patientDataMap[activeMrn].features = feats;
+                if (data.doctor_report && data.doctor_report.doctor_note) {
+                    patientDataMap[activeMrn].clinical_summary = data.doctor_report.doctor_note;
+                }
+            }
+
+            // 3. Populate intake form
             populateIntakeForm(feats);
-            const patient = patientDataMap[activeMrn] || { id: activeMrn, name: "Intake Patient", age: 25, gender: "Male" };
-            await runInference(feats, patient.id, patient.name, patient.age, patient.gender);
 
-            alert("🎮 Gamified Quiz Submitted! Assessment updated with parallel data entry.");
-            switchTab("overview");
+            // 4. Update Dashboard UI
+            if (currentPrediction && currentXAI && currentDoctorReport) {
+                updateDashboardUI(currentPrediction, currentXAI, currentDoctorReport);
+            } else {
+                await runInference(feats, patient.id, patient.name, patient.age, patient.gender);
+            }
+
+            // 5. Update Voice/Quiz Success Banner in Doctor Report tab
+            const repBanner = document.getElementById("repVoiceSuccessBanner");
+            const repText = document.getElementById("repVoiceSuccessText");
+            if (repBanner && repText) {
+                repText.innerText = `Gamified Mind Checkup Quiz committed to EHR (${activeMrn} - ${patient.name}). BP: ${quizData.bp_level || 'Normal 120/80'}, Sleep: ${quizData.sleep_hours}h, Stress: ${quizData.stress_level}/10. Doctor diagnostic SOAP note & cryptographic certificate compiled.`;
+                repBanner.classList.remove("hidden");
+            }
+
+            alert("🎮 Gamified Mind Checkup Quiz Submitted! Clinical EHR record and Doctor Diagnostic Report generated.");
+            switchTab("report");
+            window.scrollTo({ top: 0, behavior: "smooth" });
         }
     } catch (err) {
         console.warn("Quiz intake error:", err);
@@ -828,6 +911,7 @@ let voiceQuestions = [
     { text: "How would you describe your mood or emotions over the past few weeks?", context: "mood" },
     { text: "Are you getting any physical activity or exercise during the week?", context: "activity" },
     { text: "On a scale of 1 to 10, how stressed are you feeling right now?", context: "stress" },
+    { text: "How does your body and blood pressure feel lately? Any headaches, racing heartbeat, or physical tension?", context: "vitals" },
     { text: "Have you ever had any past episodes of severe depression or anxiety before this?", context: "episodes" },
     { text: "Is there any history of mental health conditions in your immediate family?", context: "family" },
     { text: "Are you currently taking any prescription medications? If so, how many?", context: "medications" },

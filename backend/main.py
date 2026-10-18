@@ -87,6 +87,10 @@ class QuizIntakeInput(BaseModel):
     exercise_hobbies: str = Field(default="Light walking 15 mins daily", description="Best choices & daily habits")
     activity_min: float = Field(default=15.0, ge=0.0, le=240.0)
     stress_level: int = Field(default=8, ge=1, le=10)
+    bp_level: Optional[str] = Field(default="Normal (120/80 mmHg)", description="Self-reported Blood pressure / vitals feeling")
+    systolic_bp: Optional[float] = Field(default=120.0, description="Estimated Systolic BP in mmHg")
+    diastolic_bp: Optional[float] = Field(default=80.0, description="Estimated Diastolic BP in mmHg")
+    mood_feeling: Optional[str] = Field(default="Normal", description="Current emotional sensation")
 
 class PatientFeaturesInput(BaseModel):
     id: Optional[str] = "MRN-2026-1023"
@@ -221,6 +225,12 @@ def save_voice_intake(patient_id: str, payload: VoiceIntakeSaveInput):
         p_feat["family_history"] = int(ext["family_history"])
     if "past_episodes" in ext and ext["past_episodes"] is not None:
         p_feat["past_episodes"] = int(ext["past_episodes"])
+    if "systolic_bp" in ext and ext["systolic_bp"] is not None:
+        p_feat["systolic_bp"] = float(ext["systolic_bp"])
+    if "diastolic_bp" in ext and ext["diastolic_bp"] is not None:
+        p_feat["diastolic_bp"] = float(ext["diastolic_bp"])
+    if "bp_level" in ext and ext["bp_level"] is not None:
+        p_feat["bp_level"] = str(ext["bp_level"])
 
     # Ensure baseline audio features exist
     p_feat.setdefault("speech_pitch_hz", 135.0)
@@ -349,17 +359,39 @@ def quiz_intake(payload: QuizIntakeInput):
         screen_hrs=payload.screen_hrs
     )
 
+    patient_id = payload.patient_id or "MRN-2026-1023"
+    patients = get_sample_patients()
+    target_patient = None
+    for p in patients:
+        if p.get("id") == patient_id or p.get("mrn") == patient_id:
+            target_patient = p
+            break
+            
+    if not target_patient:
+        target_patient = {
+            "id": patient_id,
+            "mrn": patient_id,
+            "name": "Intake Patient",
+            "age": 25,
+            "gender": "Male",
+            "features": {}
+        }
+
     # Parallel Feature Fusion
     features = {
         "phq9_score": phq9_est["estimated_score"],
         "gad7_score": gad7_est["estimated_score"],
         "mdq_score": 3.0, # Baseline
-        "who5_wellbeing": 100 - phq9_est["estimated_score"] * 3, # Correlated estimate
+        "who5_wellbeing": max(10, min(100, 100 - phq9_est["estimated_score"] * 3)), # Correlated estimate
         "sleep_hours": payload.sleep_hours,
         "social_interaction_score": payload.social_score,
         "physical_activity_min": payload.activity_min,
         "screen_time_hrs": payload.screen_hrs,
         "stress_level": payload.stress_level,
+        "systolic_bp": payload.systolic_bp or 120.0,
+        "diastolic_bp": payload.diastolic_bp or 80.0,
+        "bp_level": payload.bp_level or "Normal (120/80 mmHg)",
+        "mood_feeling": payload.mood_feeling or "Normal",
         "speech_pitch_hz": 135.0,
         "speaking_rate_wpm": 110.0,
         "pause_frequency_ppm": 16.0,
@@ -370,6 +402,12 @@ def quiz_intake(payload: QuizIntakeInput):
         "keyword_intensity": keyword_intensity,
         "suicide_risk_flag": ocr_result.get("keyword_analysis", {}).get("suicide_risk_flag", False)
     }
+
+    # Summary note for patient record
+    summary_text = f"Gamified Patient Mind Checkup Quiz completed for {target_patient.get('name', 'Patient')} ({patient_id}). Sleep: {payload.sleep_hours}h ({payload.sleep_habit}), Blood Pressure: {payload.bp_level} ({payload.systolic_bp}/{payload.diastolic_bp} mmHg), Stress: {payload.stress_level}/10, Activity: {payload.activity_min} min/day. Life reflection: '{payload.life_sentence}'."
+
+    # Persist directly into PATIENT_STORE
+    update_patient_record(patient_id, features, clinical_summary=summary_text)
 
     # Validate inputs
     validation = validate_patient_input(features)
@@ -382,11 +420,40 @@ def quiz_intake(payload: QuizIntakeInput):
 
     xai = generate_patient_xai(features)
     care_plan = generate_preventive_care_plan(features, prediction)
+    summaries = generate_clinical_summary(target_patient.get("name", "Patient"), target_patient.get("age", 25), target_patient.get("gender", "Male"), prediction, xai, qualitative_notes=summary_text)
+    cert = generate_doctor_verification_certificate(patient_id, target_patient.get("name", "Patient"), prediction["risk_scores"])
+    consultation_logs = get_patient_consultation_logs(patient_id)
+
+    doctor_report = {
+        "report_id": f"REP-{patient_id}",
+        "patient_id": patient_id,
+        "patient_name": target_patient.get("name", "Patient"),
+        "age": target_patient.get("age", 25),
+        "gender": target_patient.get("gender", "Male"),
+        "validation_report": validation,
+        "risk_scores": prediction["risk_scores"],
+        "risk_categories": prediction["risk_categories"],
+        "top_contributing_factors": xai["top_contributing_factors"],
+        "preventive_actions": care_plan["recommended_actions"],
+        "detailed_action_plan": care_plan["detailed_action_plan"],
+        "followup_timeline": care_plan["followup_timeline"],
+        "doctor_note": summaries["doctor_note"],
+        "doctor_certificate": cert,
+        "consultation_logs": consultation_logs
+    }
 
     return {
+        "status": "SAVED_AND_REPORT_GENERATED",
         "quiz_status": "QUIZ_PARALLEL_DATA_FILLED",
+        "message": f"Gamified quiz data successfully saved to Patient Record ({patient_id}).",
+        "patient_id": patient_id,
+        "features": features,
         "extracted_quiz_features": features,
         "validation_report": validation,
+        "prediction": prediction,
+        "xai": xai,
+        "doctor_report": doctor_report,
+        "care_plan": care_plan,
         "risk_scores": prediction["risk_scores"],
         "risk_categories": prediction["risk_categories"],
         "confidence_score": prediction["confidence_score"],
