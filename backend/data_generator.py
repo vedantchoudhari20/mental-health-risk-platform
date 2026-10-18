@@ -386,3 +386,18 @@ def register_new_patient(patient_data: Dict[str, Any]) -> Dict[str, Any]:
 
     PATIENT_STORE.insert(0, new_patient)
     return new_patient
+
+def update_patient_record(patient_id: str, updated_features: Dict[str, Any], clinical_summary: Optional[str] = None) -> Optional[Dict[str, Any]]:
+    """Persists updated clinical features and notes into PATIENT_STORE for an existing patient."""
+    for p in PATIENT_STORE:
+        if p.get("id") == patient_id or p.get("mrn") == patient_id:
+            if "features" not in p:
+                p["features"] = {}
+            for k, v in updated_features.items():
+                if v is not None:
+                    p["features"][k] = v
+            if clinical_summary:
+                p["clinical_summary"] = clinical_summary
+            return p
+    return None
+

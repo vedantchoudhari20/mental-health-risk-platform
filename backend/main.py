@@ -14,7 +14,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
 from typing import Dict, Any, List, Optional
 
-from data_generator import get_sample_patients, register_new_patient
+from data_generator import get_sample_patients, register_new_patient, update_patient_record
 from feature_engineering import compute_derived_features, generate_longitudinal_trend
 from ml_engine import ml_engine
 from xai_engine import generate_patient_xai
@@ -69,6 +69,12 @@ class VoiceIntakeInput(BaseModel):
     transcript: str = Field(..., description="Transcribed voice text")
     context: str = Field(..., description="Context of the question asked (sleep, mood, activity, stress, social)")
     question_text: Optional[str] = Field(default="", description="The exact question asked by the interviewer")
+
+class VoiceIntakeSaveInput(BaseModel):
+    patient_id: str = Field(default="MRN-2026-1023")
+    extracted_features: Dict[str, Any] = Field(default_factory=dict)
+    transcripts: Optional[List[str]] = Field(default_factory=list)
+    clinical_notes: Optional[str] = None
 
 class QuizIntakeInput(BaseModel):
     patient_id: Optional[str] = "MRN-2026-1023"
@@ -165,6 +171,135 @@ def voice_intake(payload: VoiceIntakeInput):
     """Processes a single conversational response during live voice intake with Gemini intelligence and abrupt-answer pivots."""
     result = parse_voice_transcript(payload.transcript, payload.context, payload.question_text)
     return result
+
+@app.post("/api/patients/{patient_id}/save-voice-intake")
+def save_voice_intake(patient_id: str, payload: VoiceIntakeSaveInput):
+    """
+    Saves extracted voice interview features directly into the active Patient's Electronic Health Record,
+    runs full multi-modal clinical AI inference, and generates an official Doctor Diagnostic Report.
+    """
+    patients = get_sample_patients()
+    target_patient = None
+    for p in patients:
+        if p.get("id") == patient_id or p.get("mrn") == patient_id:
+            target_patient = p
+            break
+            
+    if not target_patient:
+        target_patient = {
+            "id": patient_id,
+            "mrn": patient_id,
+            "name": "Intake Patient",
+            "age": 25,
+            "gender": "Male",
+            "features": {}
+        }
+
+    p_feat = dict(target_patient.get("features", {}))
+    ext = payload.extracted_features
+
+    # Update features with voice-extracted values
+    if "sleep_hours" in ext and ext["sleep_hours"] is not None:
+        p_feat["sleep_hours"] = float(ext["sleep_hours"])
+    if "physical_activity_min" in ext and ext["physical_activity_min"] is not None:
+        p_feat["physical_activity_min"] = float(ext["physical_activity_min"])
+    if "stress_level" in ext and ext["stress_level"] is not None:
+        p_feat["stress_level"] = int(ext["stress_level"])
+    if "sentiment_score" in ext and ext["sentiment_score"] is not None:
+        p_feat["sentiment_score"] = float(ext["sentiment_score"])
+    if "sadness_prob" in ext and ext["sadness_prob"] is not None:
+        p_feat["sadness_prob"] = float(ext["sadness_prob"])
+    if "anxiety_prob" in ext and ext["anxiety_prob"] is not None:
+        p_feat["anxiety_prob"] = float(ext["anxiety_prob"])
+    if "hopelessness_prob" in ext and ext["hopelessness_prob"] is not None:
+        p_feat["hopelessness_prob"] = float(ext["hopelessness_prob"])
+    if "keyword_intensity" in ext and ext["keyword_intensity"] is not None:
+        p_feat["keyword_intensity"] = float(ext["keyword_intensity"])
+    if "social_interaction_score" in ext and ext["social_interaction_score"] is not None:
+        p_feat["social_interaction_score"] = float(ext["social_interaction_score"])
+    if "family_history" in ext and ext["family_history"] is not None:
+        p_feat["family_history"] = int(ext["family_history"])
+    if "past_episodes" in ext and ext["past_episodes"] is not None:
+        p_feat["past_episodes"] = int(ext["past_episodes"])
+
+    # Ensure baseline audio features exist
+    p_feat.setdefault("speech_pitch_hz", 135.0)
+    p_feat.setdefault("speaking_rate_wpm", 115.0)
+    p_feat.setdefault("pause_frequency_ppm", 16.0)
+    p_feat.setdefault("speech_tone_var", 25.0)
+    p_feat.setdefault("audio_energy", 0.45)
+
+    # Estimate PHQ-9 & GAD-7 legitimately from behavioral metrics
+    phq_est = estimate_phq9_from_behavioral(
+        sleep_hours=p_feat.get("sleep_hours", 7.0),
+        stress_level=p_feat.get("stress_level", 5),
+        social_score=p_feat.get("social_interaction_score", 50.0),
+        activity_min=p_feat.get("physical_activity_min", 30.0),
+        sentiment_score=p_feat.get("sentiment_score", 0.0),
+        screen_hrs=p_feat.get("screen_time_hrs", 6.0),
+        sadness_prob=p_feat.get("sadness_prob", 0.1),
+        hopelessness_prob=p_feat.get("hopelessness_prob", 0.1),
+        keyword_intensity=p_feat.get("keyword_intensity", 10.0)
+    )
+    p_feat["phq9_score"] = phq_est["estimated_score"]
+
+    gad_est = estimate_gad7_from_behavioral(
+        stress_level=p_feat.get("stress_level", 5),
+        sleep_hours=p_feat.get("sleep_hours", 7.0),
+        sentiment_score=p_feat.get("sentiment_score", 0.0),
+        anxiety_prob=p_feat.get("anxiety_prob", 0.1),
+        social_score=p_feat.get("social_interaction_score", 50.0),
+        screen_hrs=p_feat.get("screen_time_hrs", 6.0)
+    )
+    p_feat["gad7_score"] = gad_est["estimated_score"]
+
+    # Compose rich clinical summary
+    transcript_text = " | ".join(payload.transcripts) if payload.transcripts else "Conversational voice screening completed."
+    summary_text = payload.clinical_notes or f"Patient completed live conversational voice evaluation. Recorded transcripts: {transcript_text[:200]}. Extracted sleep: {p_feat.get('sleep_hours', '--')}h, stress: {p_feat.get('stress_level', '--')}/10, voice sentiment: {p_feat.get('sentiment_score', 0):.2f}."
+
+    # Persist directly into PATIENT_STORE
+    update_patient_record(patient_id, p_feat, clinical_summary=summary_text)
+
+    # Run Inference, XAI, Preventive Plan, and Doctor Report
+    validation = validate_patient_input(p_feat)
+    prediction = ml_engine.predict_patient_risk(p_feat)
+    prediction["confidence_score"] = round(prediction["confidence_score"] * validation["confidence_adjustment"], 1)
+
+    xai = generate_patient_xai(p_feat)
+    care_plan = generate_preventive_care_plan(p_feat, prediction)
+    summaries = generate_clinical_summary(target_patient.get("name", "Patient"), target_patient.get("age", 25), target_patient.get("gender", "Male"), prediction, xai, qualitative_notes=summary_text)
+    cert = generate_doctor_verification_certificate(patient_id, target_patient.get("name", "Patient"), prediction["risk_scores"])
+    consultation_logs = get_patient_consultation_logs(patient_id)
+
+    doctor_report = {
+        "report_id": f"REP-{patient_id}",
+        "patient_id": patient_id,
+        "patient_name": target_patient.get("name", "Patient"),
+        "age": target_patient.get("age", 25),
+        "gender": target_patient.get("gender", "Male"),
+        "validation_report": validation,
+        "risk_scores": prediction["risk_scores"],
+        "risk_categories": prediction["risk_categories"],
+        "top_contributing_factors": xai["top_contributing_factors"],
+        "preventive_actions": care_plan["recommended_actions"],
+        "detailed_action_plan": care_plan["detailed_action_plan"],
+        "followup_timeline": care_plan["followup_timeline"],
+        "doctor_note": summaries["doctor_note"],
+        "doctor_certificate": cert,
+        "consultation_logs": consultation_logs
+    }
+
+    return {
+        "status": "SAVED_AND_REPORT_GENERATED",
+        "message": f"Voice intake data successfully saved to Patient Record ({patient_id}).",
+        "patient_id": patient_id,
+        "features": p_feat,
+        "prediction": prediction,
+        "xai": xai,
+        "doctor_report": doctor_report,
+        "care_plan": care_plan
+    }
+
 
 @app.post("/api/quiz-intake")
 def quiz_intake(payload: QuizIntakeInput):

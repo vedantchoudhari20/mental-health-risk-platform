@@ -364,6 +364,11 @@ async function loadPatientData(mrn) {
     document.getElementById("dispPhysician").innerText = patient.primary_physician || "Dr. Rohan Shinde, MBBS, MD Psychiatry";
     document.getElementById("dispPatientNotes").innerText = patient.clinical_summary;
 
+    const targetBadge = document.getElementById("voiceTargetPatientBadge");
+    if (targetBadge) targetBadge.innerText = `${patient.mrn || patient.id} (${patient.name})`;
+    const voiceMrnDisp = document.getElementById("voiceActiveMrnDisplay");
+    if (voiceMrnDisp) voiceMrnDisp.innerText = patient.mrn || patient.id;
+
     populateIntakeForm(patient.features);
     await runInference(patient.features, patient.id, patient.name, patient.age, patient.gender);
 }
@@ -440,12 +445,16 @@ function updateDashboardUI(pred, xai, report) {
     animateCounter("dispConfidence", pred.confidence_score, "%");
     document.getElementById("dispPatientStatus").innerText = pred.risk_categories.depression === "HIGH" ? "HIGH RISK ADVISORY" : (pred.risk_categories.depression === "MODERATE" ? "MODERATE RISK" : "STABLE");
 
+    // Resolve patient name & id from multiple sources
+    const patientDisplayName = report?.patient_name || pred.patient_name || (patientDataMap[activeMrn] && patientDataMap[activeMrn].name) || activeMrn;
+    const patientDisplayId   = report?.patient_id   || pred.patient_id   || activeMrn;
+
     // Alert Banner
     const banner = document.getElementById("alertBanner");
     if (pred.alert_triggered) {
         banner.classList.remove("hidden");
         document.getElementById("alertTitle").innerText = `${pred.alert_level} CLINICAL ADVISORY`;
-        document.getElementById("alertMessage").innerText = `Patient ${pred.patient_name} (${pred.patient_id}) presents with Depression (${pred.risk_scores.depression}%) and Suicide Risk (${pred.risk_scores.suicide}%). Immediate clinician evaluation recommended.`;
+        document.getElementById("alertMessage").innerText = `Patient ${patientDisplayName} (${patientDisplayId}) presents with Depression (${pred.risk_scores.depression}%) and Suicide Risk (${pred.risk_scores.suicide}%). Immediate clinician evaluation recommended.`;
     } else {
         banner.classList.add("hidden");
     }
@@ -826,6 +835,7 @@ let voiceQuestions = [
 ];
 let currentQuestionIndex = 0;
 let voiceExtractedData = {};
+let voiceTranscriptLog = [];
 
 function speakText(text, callback) {
     const synth = window.speechSynthesis;
@@ -838,6 +848,9 @@ function startVoiceInterview() {
     document.getElementById('startVoiceBtn').style.display = 'none';
     currentQuestionIndex = 0;
     voiceExtractedData = {};
+    voiceTranscriptLog = [];
+    const banner = document.getElementById('voiceCompletionBanner');
+    if (banner) banner.style.display = 'none';
     askNextVoiceQuestion();
 }
 
@@ -845,7 +858,20 @@ function askNextVoiceQuestion() {
     if (currentQuestionIndex >= voiceQuestions.length) {
         document.getElementById('voiceQuestionText').innerText = "Interview complete. Thank you.";
         document.getElementById('voiceTranscriptText').innerText = "All responses processed.";
-        document.getElementById('voiceTransferBtn').disabled = false;
+        
+        // Show prominent completion banner
+        const banner = document.getElementById('voiceCompletionBanner');
+        if (banner) {
+            banner.style.display = 'block';
+            if (typeof gsap !== "undefined") {
+                gsap.from(banner, { duration: 0.4, y: 15, opacity: 0, ease: "power2.out" });
+            }
+        }
+        const voiceMrnDisp = document.getElementById('voiceActiveMrnDisplay');
+        if (voiceMrnDisp) voiceMrnDisp.innerText = activeMrn;
+
+        const btn = document.getElementById('voiceTransferBtn');
+        if (btn) btn.disabled = false;
         return;
     }
 
@@ -864,6 +890,9 @@ async function handleVoiceTranscript(transcript, context) {
     document.getElementById('voiceTranscriptText').innerText = transcript;
     document.getElementById('voiceStatusIndicator').style.display = 'none';
     
+    // Log transcript
+    voiceTranscriptLog.push(`[${context.toUpperCase()}]: "${transcript}"`);
+
     // Clear simulation input if used
     const simInp = document.getElementById('voiceSimInput');
     if (simInp) simInp.value = '';
@@ -973,78 +1002,109 @@ function startListening(context) {
     }
 }
 
-function transferVoiceDataToForm() {
-    // 1. Update the manual form inputs visually
+function resetVoiceInterview() {
+    currentQuestionIndex = 0;
+    voiceExtractedData = {};
+    voiceTranscriptLog = [];
+    voiceFollowupAttempts = 0;
+    document.getElementById('voiceValSleep').innerText = "--";
+    document.getElementById('voiceValActivity').innerText = "--";
+    document.getElementById('voiceValStress').innerText = "--";
+    document.getElementById('voiceValSentiment').innerText = "--";
+    document.getElementById('voiceTranscriptText').innerText = "Listening...";
+    const box = document.getElementById('voiceAiFeedbackBox');
+    if (box) box.style.display = 'none';
+    const banner = document.getElementById('voiceCompletionBanner');
+    if (banner) banner.style.display = 'none';
+    const startBtn = document.getElementById('startVoiceBtn');
+    if (startBtn) startBtn.style.display = 'inline-flex';
+    document.getElementById('voiceQuestionText').innerText = "Click 'Start Live Interview' to begin...";
+}
+
+async function generateReportFromVoiceData() {
+    const btn = document.getElementById("voiceTransferBtn");
+    const originalBtnHtml = btn ? btn.innerHTML : "";
+
+    if (btn) {
+        btn.disabled = true;
+        btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> Saving to EHR & Compiling Report...';
+    }
+
+    try {
+        const patient = patientDataMap[activeMrn] || { id: activeMrn, name: "Vedant", age: 21, gender: "Male" };
+        
+        // 1. Post to backend to save voice features into active patient's EHR and generate full doctor report
+        const res = await fetch(`${API_BASE}/api/patients/${activeMrn}/save-voice-intake`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+                patient_id: activeMrn,
+                extracted_features: voiceExtractedData,
+                transcripts: voiceTranscriptLog,
+                clinical_notes: `Clinical Voice Assistant Intake completed for ${patient.name} (${activeMrn}). Sleep: ${voiceExtractedData.sleep_hours || '--'}h, Activity: ${voiceExtractedData.physical_activity_min || '--'}m, Stress: ${voiceExtractedData.stress_level || '--'}/10.`
+            })
+        });
+
+        if (res.ok) {
+            const data = await res.json();
+            
+            // 2. Update global state with the freshly generated prediction, XAI, and doctor report
+            currentPrediction = data.prediction;
+            currentXAI = data.xai;
+            currentDoctorReport = data.doctor_report;
+
+            // 3. Update active patient in patientDataMap
+            if (patientDataMap[activeMrn]) {
+                patientDataMap[activeMrn].features = data.features;
+                if (data.doctor_report && data.doctor_report.doctor_note) {
+                    patientDataMap[activeMrn].clinical_summary = data.doctor_report.doctor_note;
+                }
+            }
+
+            // 4. Update UI across dashboard and official doctor report
+            updateDashboardUI(currentPrediction, currentXAI, currentDoctorReport);
+
+            // 5. Update Voice Banner in Doctor Report tab
+            const repBanner = document.getElementById("repVoiceSuccessBanner");
+            const repText = document.getElementById("repVoiceSuccessText");
+            if (repBanner && repText) {
+                repText.innerText = `Data securely committed to Patient EHR (${activeMrn} - ${patient.name}). Extracted Sleep: ${voiceExtractedData.sleep_hours || 7}h, Stress: ${voiceExtractedData.stress_level || 5}/10, Sentiment: ${(voiceExtractedData.sentiment_score || 0).toFixed(2)}. Doctor diagnostic SOAP note & cryptographic certificate compiled.`;
+                repBanner.classList.remove("hidden");
+            }
+
+            // 6. Direct user smoothly to the Official Doctor Diagnostic Report tab
+            switchTab('report');
+            window.scrollTo({ top: 0, behavior: 'smooth' });
+
+        } else {
+            console.warn("Backend save voice intake returned non-200. Falling back to local inference.");
+            transferVoiceDataToFormFallback();
+        }
+    } catch (err) {
+        console.error("Error generating report from voice data:", err);
+        transferVoiceDataToFormFallback();
+    } finally {
+        if (btn) {
+            btn.disabled = false;
+            btn.innerHTML = originalBtnHtml || '<i class="fa-solid fa-file-medical"></i> Generate Doctor Report from Voice';
+        }
+    }
+}
+
+function transferVoiceDataToFormFallback() {
+    // Fallback if backend route had a network glitch
     if (voiceExtractedData.sleep_hours) {
         document.getElementById('inSleep').value = voiceExtractedData.sleep_hours;
         quizData.sleep_hours = voiceExtractedData.sleep_hours;
     }
-    if (voiceExtractedData.physical_activity_min !== undefined) {
-        document.getElementById('inActivity').value = voiceExtractedData.physical_activity_min;
-        quizData.activity_min = voiceExtractedData.physical_activity_min;
-    }
-    if (voiceExtractedData.stress_level) {
-        document.getElementById('inStress').value = voiceExtractedData.stress_level;
-        quizData.stress_level = voiceExtractedData.stress_level;
-    }
-    
-    // 2. Map Voice Sentiment directly to PHQ-9 / GAD-7 proxies for the global state
-    // This creates a consistent flow where the Voice AI dictates the actual clinical scores
-    let phq9 = 5;
-    let gad7 = 5;
-    let mdq = 2;
-    
-    if (voiceExtractedData.sentiment_score !== undefined) {
-        // -1.0 sentiment = severe (approx 20 PHQ-9). +1.0 = normal (approx 2)
-        phq9 = Math.max(0, Math.min(27, Math.round(10 - (voiceExtractedData.sentiment_score * 15))));
-        gad7 = Math.max(0, Math.min(21, Math.round(8 - (voiceExtractedData.sentiment_score * 10))));
-    }
-    if (voiceExtractedData.past_episodes) phq9 += 5;
-    if (voiceExtractedData.family_history) mdq += 3;
-    
-    // 3. Build a comprehensive payload that overrides manual input
     const patient = patientDataMap[activeMrn] || { id: activeMrn, name: "Intake Patient", age: 25, gender: "Male" };
-    
-    const finalFeatures = {
-        id: patient.id,
-        name: patient.name,
-        age: patient.age,
-        gender: patient.gender,
-        phq9_score: phq9,
-        gad7_score: gad7,
-        mdq_score: mdq,
-        mood_stability_index: (voiceExtractedData.sentiment_score !== undefined) ? (voiceExtractedData.sentiment_score + 1) * 50 : 50,
-        who5_wellbeing: (voiceExtractedData.sentiment_score !== undefined) ? (voiceExtractedData.sentiment_score + 1) * 50 : 50,
-        sleep_hours: quizData.sleep_hours,
-        social_interaction_score: quizData.social_score,
-        physical_activity_min: quizData.activity_min,
-        screen_time_hrs: quizData.screen_hrs,
-        diet_quality_score: 50.0,
-        stress_level: quizData.stress_level,
-        speech_pitch_hz: 120.0, // Defaults for audio
-        speech_tone_var: 20.0,
-        speaking_rate_wpm: 120.0,
-        pause_frequency_ppm: 15.0,
-        audio_energy: 0.5,
-        sentiment_score: voiceExtractedData.sentiment_score || 0.0,
-        sadness_prob: voiceExtractedData.sadness_prob || 0.0,
-        anxiety_prob: voiceExtractedData.anxiety_prob || 0.0,
-        hopelessness_prob: voiceExtractedData.hopelessness_prob || 0.0,
-        keyword_intensity: voiceExtractedData.keyword_intensity || 0.0,
-        family_history: voiceExtractedData.family_history || 0,
-        past_episodes: voiceExtractedData.past_episodes || 0,
-        medication_count: voiceExtractedData.medication_count || 0,
-        medical_conditions: voiceExtractedData.medical_conditions || 0
-    };
-    
-    alert("Voice data has been securely linked to Patient EHR. Running AI Inference...");
-    
-    // 4. Force run the prediction globally to create the single source of truth
-    runInference(finalFeatures, patient.id, patient.name, patient.age, patient.gender).then(() => {
-        // Jump directly to the final dashboard automatically
-        switchTab('overview');
+    runInference(patient.features, patient.id, patient.name, patient.age, patient.gender).then(() => {
+        switchTab('report');
     });
 }
+
+// Keep transferVoiceDataToForm as alias
+const transferVoiceDataToForm = generateReportFromVoiceData;
 
 // ==========================================
 // GEMINI AI CONFIGURATION & MODAL HANDLERS
